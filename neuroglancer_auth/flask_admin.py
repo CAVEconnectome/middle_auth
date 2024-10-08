@@ -52,15 +52,30 @@ def setup_admin(app, db):
         app,
         name="middle auth admin",
         index_view=MyAdminIndexView(url="/sticky_auth/flask_admin"),
+        template_mode="bootstrap4"
     )
+
+    SuperAdminView.column_searchable_list = ("name",)
+    SuperAdminView.column_filters = ("admin", "gdpr_consent", "pi", "read_only")
     admin.add_view(SuperAdminView(User, db.session))
+    SuperAdminView.column_filters = ()
+
     admin.add_view(SuperAdminView(Group, db.session))
+    SuperAdminView.column_searchable_list = ()
+
+
     admin.add_view(SuperAdminView(Affiliation, db.session))
     admin.add_view(SuperAdminView(UserAffiliation, db.session))
     admin.add_view(SuperAdminView(Dataset, db.session))
     admin.add_view(SuperAdminView(Permission, db.session))
     admin.add_view(SuperAdminView(Tos, db.session))
     admin.add_view(SuperAdminView(CellTemp, db.session))
+
+    SuperAdminView.column_searchable_list = ("dataset_id", "service_name", "table_name")
+    SuperAdminView.column_filters = ("dataset_id",)
     admin.add_view(SuperAdminView(ServiceTable, db.session))
+    SuperAdminView.column_searchable_list = ()
+    SuperAdminView.column_filters = ()
+
     admin.add_view(SuperAdminView(App, db.session))
     return admin
