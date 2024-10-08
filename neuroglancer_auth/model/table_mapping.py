@@ -22,3 +22,27 @@ class ServiceTable(db.Model):
         el = ServiceTable.query.filter_by(service_name=service, table_name=table).first()
         if el:
             return el.dataset.name
+
+    @staticmethod
+    def add(service_name, table_name, dataset):
+        try:
+            dataset = Dataset.search_by_name(dataset)[0]
+        except IndexError:
+            raise ValueError(f"{dataset} does not exist.")
+        sta = ServiceTable(
+            service_name=service_name, table_name=table_name, dataset_id=dataset.id
+        )
+        db.session.add(sta)
+        db.session.commit()
+
+    @staticmethod
+    def remove(service_name, table_name, dataset):
+        try:
+            dataset = Dataset.search_by_name(dataset)[0]
+        except IndexError:
+            raise ValueError(f"{dataset} does not exist.")
+        ServiceTable.query.filter_by(
+            service_name=service_name, table_name=table_name, dataset_id=dataset.id
+        ).delete()
+        db.session.commit()
+

@@ -85,7 +85,7 @@ def requires_dataset_admin(f):
     @auth_required
     def decorated_function(dataset_id, *args, **kwargs):
         is_dataset_admin = flask.g.auth_user['admin'] or DatasetAdmin.is_dataset_admin(flask.g.auth_user['id'], dataset_id)
-        
+
         if is_dataset_admin:
             return f(*args, **{**kwargs, **{'dataset_id': dataset_id}})
         else:
@@ -158,7 +158,7 @@ def authorize():
         return flask.redirect(authorization_url, code=302)
 
 def redirect_with_args(url, token=None, args={}):
-    # query_params = {arg: flask.request.args.get(arg) for arg in args if flask.request.args.get(arg) is not None}   
+    # query_params = {arg: flask.request.args.get(arg) for arg in args if flask.request.args.get(arg) is not None}
     resp = flask.redirect(str(URL(url) % args), code=302)
     if token is not None:
         resp.set_cookie(TOKEN_NAME, token, secure=True, httponly=True)
@@ -191,7 +191,7 @@ def maybe_handle_tos(user, token, template_name=None, template_context={}):
         existing = UserTos.get(user.id, 1)
         if not existing:
             UserTos.add(user.id, 1) # flywire tos
-    
+
     tos_id = flask.session.pop('tos_id', None)
 
     if tos_id:
@@ -562,7 +562,7 @@ def remove_dataset_to_group_route(dataset_id, group_id, permission_id):
 
 @api_v1_bp.route('/group', methods=['GET'])
 @auth_required
-def get_all_groups():    
+def get_all_groups():
     groups = Group.search_by_name(flask.request.args.get('name'))
     return flask.jsonify([group.as_dict() for group in groups])
 
@@ -956,7 +956,7 @@ def create_generic_routes(name, model, required_fields):
 
     @local_bp.route('', methods=['GET'])
     @auth_required
-    def get_all_route():    
+    def get_all_route():
         els = model.search_by_name(flask.request.args.get('name'))
         return dict_response(els)
 
@@ -989,6 +989,26 @@ def get_dataset_for_service_table_route(service, table):
         return flask.jsonify(dataset)
     else:
         return flask.Response("No dataset for given service and table names", 404)
+
+@api_v1_bp.route('/service/<service>/table/<table>/dataset/<dataset>', methods=['POST'])
+@auth_requires_admin
+def create_tablemapping_route(service, table, dataset):
+    try:
+        dataset = ServiceTable.add(service, table, dataset)
+        return flask.jsonify("success")
+    except ValueError:
+        return flask.Response("Dataset does not exist.", 404)
+    except sqlalchemy.exc.IntegrityError as err:
+        return flask.Response("Table mapping already exists.", 422)
+
+@api_v1_bp.route('/service/<service>/table/<table>/dataset/<dataset>', methods=['DELETE'])
+@auth_requires_admin
+def delete_tablemapping_route(service, table, dataset):
+    try:
+        ServiceTable.remove(service, table, dataset)
+        return flask.jsonify("success")
+    except ValueError:
+        return flask.Response("Dataset does not exist.", 404)
 
 from .model.base import r
 
