@@ -449,8 +449,8 @@ class User(db.Model):
                 x["name"]: x["permissions"] for x in permissions_v2_ignore_tos
             },
             "missing_tos": self.datasets_missing_tos(),
-            "datasets_admin": self.get_datasets_adminning(),
-            "groups_admin": self.get_groups_adminning(),
+            "datasets_admin": [x["name"] for x in self.get_datasets_adminning()],
+            "groups_admin": [x["name"] for x in self.get_groups_adminning()],
         }
 
     def generate_token(self, ex=None):
