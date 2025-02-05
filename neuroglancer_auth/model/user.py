@@ -295,6 +295,22 @@ class User(db.Model):
 
         return [{"id": id, "name": name} for id, name in groups]
 
+    def get_groups_adminning(self):
+        # move to UserGroup
+        from .group import Group
+        from .user_group import UserGroup
+
+        query = (
+            db.session.query(Group.id, Group.name)
+            .join(UserGroup, UserGroup.group_id == Group.id)
+            .filter(UserGroup.admin == True)
+            .filter(UserGroup.user_id == self.id)
+        )
+
+        groups = query.all()
+
+        return [{"id": id, "name": name} for id, name in groups]
+
     def get_datasets_adminning(self):
         # move to DatasetAdmin
         from .dataset import Dataset
@@ -308,10 +324,7 @@ class User(db.Model):
 
         datasets = query.all()
 
-        return [
-            {"id": dataset_id, "name": dataset_name}
-            for dataset_id, dataset_name in datasets
-        ]
+        return [{"id": id, "name": name} for id, name in datasets]
 
     def datasets_missing_tos(self):
         from .dataset import Dataset
@@ -436,6 +449,8 @@ class User(db.Model):
                 x["name"]: x["permissions"] for x in permissions_v2_ignore_tos
             },
             "missing_tos": self.datasets_missing_tos(),
+            "datasets_admin": self.get_datasets_adminning(),
+            "groups_admin": self.get_groups_adminning(),
         }
 
     def generate_token(self, ex=None):
