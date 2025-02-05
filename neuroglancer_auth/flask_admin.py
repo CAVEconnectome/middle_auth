@@ -1,22 +1,19 @@
+import os
+
+import flask
 from flask_admin import Admin, AdminIndexView, expose
 from flask_admin.contrib.sqla import ModelView
 from middle_auth_client import auth_required
-import flask
-import json
-import os
 
-from .model.base import r
+from .model.affiliation import Affiliation, UserAffiliation
 from .model.app import App
 from .model.cell_temp import CellTemp
-from .model.user import User
-from .model.group import Group
-from .model.affiliation import Affiliation, UserAffiliation
-from .model.tos import Tos
-from .model.permission import Permission
 from .model.dataset import Dataset
-from .model.cell_temp import CellTemp
+from .model.group import Group
+from .model.permission import Permission
 from .model.table_mapping import ServiceTable
-
+from .model.tos import Tos
+from .model.user import User
 
 TOKEN_NAME = os.environ.get("TOKEN_NAME", "middle_auth_token")
 
@@ -52,7 +49,7 @@ def setup_admin(app, db):
         app,
         name="middle auth admin",
         index_view=MyAdminIndexView(url="/sticky_auth/flask_admin"),
-        template_mode="bootstrap4"
+        template_mode="bootstrap4",
     )
 
     SuperAdminView.column_searchable_list = ("name",)
@@ -62,7 +59,6 @@ def setup_admin(app, db):
 
     admin.add_view(SuperAdminView(Group, db.session))
     SuperAdminView.column_searchable_list = ()
-
 
     admin.add_view(SuperAdminView(Affiliation, db.session))
     admin.add_view(SuperAdminView(UserAffiliation, db.session))

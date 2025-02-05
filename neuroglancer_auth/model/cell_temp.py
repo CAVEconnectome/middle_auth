@@ -17,10 +17,11 @@ class CellTemp(db.Model):
 
     @staticmethod
     def all_public(table_id, root_ids):
-        num_of_public = CellTemp.query\
-            .filter(CellTemp.root_id.in_(root_ids))\
-            .filter_by(table_id=table_id, public=True)\
+        num_of_public = (
+            CellTemp.query.filter(CellTemp.root_id.in_(root_ids))
+            .filter_by(table_id=table_id, public=True)
             .count()
+        )
         return num_of_public == len(root_ids)
 
     @staticmethod

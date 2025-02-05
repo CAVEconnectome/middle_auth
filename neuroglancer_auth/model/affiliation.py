@@ -1,12 +1,15 @@
+from sqlalchemy.orm import relationship
+from sqlalchemy.sql import func
+
 from .base import db
 
-from sqlalchemy.sql import func
-from sqlalchemy.orm import relationship
 
 class UserAffiliation(db.Model):
     id = db.Column(db.Integer, primary_key=True, autoincrement=True)
-    user_id = db.Column('user_id', db.Integer, db.ForeignKey("user.id"), nullable=False)
-    affiliation_id = db.Column('affiliation_id', db.Integer, db.ForeignKey("affiliation.id"), nullable=False)
+    user_id = db.Column("user_id", db.Integer, db.ForeignKey("user.id"), nullable=False)
+    affiliation_id = db.Column(
+        "affiliation_id", db.Integer, db.ForeignKey("affiliation.id"), nullable=False
+    )
     __table_args__ = (db.UniqueConstraint("user_id", "affiliation_id"),)
     start = db.Column(db.DateTime, server_default=func.now(), nullable=True)
     end = db.Column(db.DateTime, nullable=True)
@@ -16,7 +19,7 @@ class UserAffiliation(db.Model):
     affiliation = relationship("Affiliation", overlaps="affiliations,users")
 
     def as_dict(self):
-        res =  {
+        res = {
             "id": self.affiliation_id,
             "name": self.affiliation.name,
         }
@@ -25,6 +28,7 @@ class UserAffiliation(db.Model):
         if self.end:
             res["end"] = self.end.isoformat()
         return res
+
 
 class Affiliation(db.Model):
     id = db.Column(db.Integer, primary_key=True, autoincrement=True)

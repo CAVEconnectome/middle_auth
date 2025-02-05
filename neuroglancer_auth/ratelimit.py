@@ -1,8 +1,10 @@
-from functools import wraps
 import time
+from functools import wraps
+
 
 class RateLimitError(Exception):
     pass
+
 
 def rate_limit(limit_args=[0], limit_kwargs=[], limit=20, window_sec=60 * 60):
     activity = {}
@@ -36,4 +38,5 @@ def rate_limit(limit_args=[0], limit_kwargs=[], limit=20, window_sec=60 * 60):
                 return f(*args, **kwargs)
 
         return decorated_function
+
     return decorator

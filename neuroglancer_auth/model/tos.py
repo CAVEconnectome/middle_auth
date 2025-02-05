@@ -1,8 +1,10 @@
-from .base import db, r
-
 # import json
 from sqlalchemy.sql import func
+
+from .base import db
+
 # import sqlalchemy
+
 
 class Tos(db.Model):
     id = db.Column(db.Integer, primary_key=True, autoincrement=True)
@@ -32,17 +34,17 @@ class Tos(db.Model):
         return el
 
     def update(self, data):
-      fields = ['name', 'text']
+        fields = ["name", "text"]
 
-      for field in fields:
-          if field in data:
-              setattr(self, field, data[field])
+        for field in fields:
+            if field in data:
+                setattr(self, field, data[field])
 
-      db.session.commit()
+        db.session.commit()
 
     @staticmethod
     def search_by_name(name):
         if name:
-            return Tos.query.filter(Tos.name.ilike(f'%{name}%')).all()
+            return Tos.query.filter(Tos.name.ilike(f"%{name}%")).all()
         else:
             return Tos.query.order_by(Tos.id.asc()).all()

@@ -28,18 +28,19 @@ decorating the extension class with :func:`extend`
 :copyright: (c) 2013 by Dan Colish.
 :license: BSD, MIT see LICENSE for more details.
 """
+
 from __future__ import absolute_import
-from markupsafe import Markup, escape
-from jinja2 import pass_eval_context as evalcontextfilter
+
 import markdown as md
+from jinja2 import pass_eval_context as evalcontextfilter
 from markdown import (
-    blockprocessors,
     Extension,
+    blockprocessors,
     preprocessors,
 )
+from markupsafe import Markup, escape
 
-
-__all__ = ['blockprocessors', 'Extension', 'Markdown', 'preprocessors']
+__all__ = ["blockprocessors", "Extension", "Markdown", "preprocessors"]
 
 
 class Markdown(object):
@@ -80,7 +81,8 @@ class Markdown(object):
         Registers the rendering method as template filter.
         """
         app.jinja_env.filters.setdefault(
-            'markdown', self.__build_filter(self.auto_escape))
+            "markdown", self.__build_filter(self.auto_escape)
+        )
 
     def __call__(self, stream):
         return Markup(self._instance.convert(stream))
@@ -101,6 +103,7 @@ class Markdown(object):
                 return Markup(__filter(escape(stream)))
             else:
                 return Markup(__filter(stream))
+
         return markdown_filter
 
     def extend(self, configs=None):
@@ -129,6 +132,7 @@ class Markdown(object):
 
         def decorator(ext_cls):
             return self.register_extension(ext_cls, configs)
+
         return decorator
 
     def register_extension(self, ext_cls, configs=None):

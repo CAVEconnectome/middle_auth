@@ -1,29 +1,44 @@
-from os import name
-from .base import db, r
-from .api_key import insert_and_generate_unique_token, APIKey, tokens_key, delete_all_tokens_for_user
-
 import json
-from sqlalchemy.sql import func
-import sqlalchemy
 
+import sqlalchemy
 from sqlalchemy.orm import relationship
+from sqlalchemy.sql import func
+
+from .api_key import (
+    APIKey,
+    delete_all_tokens_for_user,
+    insert_and_generate_unique_token,
+    tokens_key,
+)
+from .base import db, r
+
 
 class User(db.Model):
     id = db.Column(db.Integer, primary_key=True, autoincrement=True)
-    name = db.Column(db.String(80), unique=False, nullable=False) # public
-    email = db.Column(db.String(120), unique=True, nullable=False) # public + affiliation
+    name = db.Column(db.String(80), unique=False, nullable=False)  # public
+    email = db.Column(
+        db.String(120), unique=True, nullable=False
+    )  # public + affiliation
     admin = db.Column(db.Boolean, server_default="0", nullable=False)
     gdpr_consent = db.Column(db.Boolean, server_default="0", nullable=False)
     pi = db.Column(db.String(80), server_default="", nullable=False)
     created = db.Column(db.DateTime, server_default=func.now())
-    parent_id = db.Column('parent_id', db.Integer, db.ForeignKey("user.id"), nullable=True)
+    parent_id = db.Column(
+        "parent_id", db.Integer, db.ForeignKey("user.id"), nullable=True
+    )
     read_only = db.Column(db.Boolean, server_default="0", nullable=False)
 
     def __repr__(self):
         return self.name
 
-    groups = relationship("Group", secondary='user_group', backref=db.backref('users', lazy='dynamic'))
-    affiliations = relationship("Affiliation", secondary='user_affiliation', backref=db.backref('users', lazy='dynamic'))
+    groups = relationship(
+        "Group", secondary="user_group", backref=db.backref("users", lazy="dynamic")
+    )
+    affiliations = relationship(
+        "Affiliation",
+        secondary="user_affiliation",
+        backref=db.backref("users", lazy="dynamic"),
+    )
 
     def as_dict(self, full=False):
         res = {
@@ -51,30 +66,31 @@ class User(db.Model):
     @property
     def user_affiliations(self):
         from .affiliation import UserAffiliation
-        return [ua.as_dict() for ua in UserAffiliation.query.filter_by(user_id=self.id)],
+
+        return (
+            [ua.as_dict() for ua in UserAffiliation.query.filter_by(user_id=self.id)],
+        )
 
     @property
     def public_name(self):
         from .user_custom_name import UserCustomName
+
         custom_name = UserCustomName.get(self.id)
         return custom_name.name if custom_name else self.name
 
     def debug_redis(self):
         tokens = r.smembers(self.tokens_key)
-        tokens = [token_bytes.decode('utf-8') for token_bytes in tokens]
+        tokens = [token_bytes.decode("utf-8") for token_bytes in tokens]
 
-        res = {
-            "tokens": tokens,
-            "values": {}
-        }
+        res = {"tokens": tokens, "values": {}}
 
         for token in tokens:
             cached_user_data = r.get("token_" + token)
             ttl = r.ttl("token_" + token)
             if cached_user_data:
                 res["values"][token] = {
-                    "data": json.loads(cached_user_data.decode('utf-8')),
-                    "ttl": ttl
+                    "data": json.loads(cached_user_data.decode("utf-8")),
+                    "ttl": ttl,
                 }
 
             # check for an api key
@@ -88,7 +104,7 @@ class User(db.Model):
 
     def fix_redis(self, soft=False):
         tokens = r.smembers(self.tokens_key)
-        tokens = [token_bytes.decode('utf-8') for token_bytes in tokens]
+        tokens = [token_bytes.decode("utf-8") for token_bytes in tokens]
 
         tokens_to_remove = []
         users_to_update = [self.id]
@@ -109,30 +125,38 @@ class User(db.Model):
                 user = User.get_by_id(user_id)
                 user.update_cache()
 
-
         return elements_removed, tokens_to_remove
 
     @property
     def is_service_account(self):
         return self.parent_id is not None
-    
+
     @property
     def parent(self):
         if self.parent_id:
             return User.user_get_by_id(self.parent_id)
-    
+
     @property
     def tokens_key(self):
         return tokens_key(self.id)
 
     @staticmethod
-    def create_account(email, name, pi, admin=False, gdpr_consent=False, group_names=[], parent_id=None):
-        from .user_group import UserGroup
+    def create_account(
+        email, name, pi, admin=False, gdpr_consent=False, group_names=[], parent_id=None
+    ):
         from .group import Group
+        from .user_group import UserGroup
 
-        user = User(name=name, email=email, admin=admin, pi=pi, gdpr_consent=gdpr_consent, parent_id=parent_id)
+        user = User(
+            name=name,
+            email=email,
+            admin=admin,
+            pi=pi,
+            gdpr_consent=gdpr_consent,
+            parent_id=parent_id,
+        )
         db.session.add(user)
-        db.session.flush() # get inserted id
+        db.session.flush()  # get inserted id
 
         groups = Group.query.filter(Group.name.in_(group_names)).all()
 
@@ -148,9 +172,9 @@ class User(db.Model):
 
     @staticmethod
     def delete_user_account(user_id):
+        from .user_custom_name import UserCustomName
         from .user_group import UserGroup
         from .user_tos import UserTos
-        from .user_custom_name import UserCustomName
 
         user = User.user_get_by_id(user_id)
         if user:
@@ -165,6 +189,7 @@ class User(db.Model):
     @staticmethod
     def delete_service_account(sa_id):
         from .user_group import UserGroup
+
         sa = User.sa_get_by_id(sa_id)
         if sa:
             UserGroup.query.filter_by(user_id=sa_id).delete()
@@ -180,11 +205,11 @@ class User(db.Model):
     @staticmethod
     def user_get_by_id(id):
         return User.query.filter_by(id=id).filter(User.parent_id.is_(None)).first()
-    
+
     @staticmethod
     def sa_get_by_id(id):
         return User.query.filter_by(id=id).filter(User.parent_id.isnot(None)).first()
-    
+
     @staticmethod
     def get_by_parent(id):
         return User.query.filter_by(parent_id=id).first()
@@ -195,8 +220,10 @@ class User(db.Model):
 
     @staticmethod
     def get_all_service_accounts():
-        return User.query.filter(User.parent_id.isnot(None)).order_by(User.id.asc()).all()
-    
+        return (
+            User.query.filter(User.parent_id.isnot(None)).order_by(User.id.asc()).all()
+        )
+
     @staticmethod
     def get_by_email(email):
         return User.query.filter_by(email=email).first()
@@ -206,11 +233,11 @@ class User(db.Model):
         if len(ids):
             return User.query.filter(User.id.in_(ids)).all()
         else:
-            return [] # otherwise returns all users
+            return []  # otherwise returns all users
 
     @staticmethod
     def search_by_email(email):
-        return User.query.filter(User.email.ilike(f'%{email}%')).all()
+        return User.query.filter(User.email.ilike(f"%{email}%")).all()
 
     @staticmethod
     def filter_by_created(from_time=None, to_time=None):
@@ -229,14 +256,22 @@ class User(db.Model):
 
     @staticmethod
     def search_by_name(name):
-        return User.query.filter(User.parent_id.is_(None)).filter(User.name.ilike(f'%{name}%')).all()
+        return (
+            User.query.filter(User.parent_id.is_(None))
+            .filter(User.name.ilike(f"%{name}%"))
+            .all()
+        )
 
     @staticmethod
     def sa_search_by_name(name):
-        return User.query.filter(User.parent_id.isnot(None)).filter(User.name.ilike(f'%{name}%')).all()
+        return (
+            User.query.filter(User.parent_id.isnot(None))
+            .filter(User.name.ilike(f"%{name}%"))
+            .all()
+        )
 
     def update(self, data):
-        user_fields = ['admin', 'name', 'pi', 'gdpr_consent', 'read_only']
+        user_fields = ["admin", "name", "pi", "gdpr_consent", "read_only"]
 
         for field in user_fields:
             if field in data:
@@ -250,65 +285,110 @@ class User(db.Model):
         from .group import Group
         from .user_group import UserGroup
 
-        query = db.session.query(Group.id, Group.name)\
-            .join(UserGroup, UserGroup.group_id == Group.id)\
+        query = (
+            db.session.query(Group.id, Group.name)
+            .join(UserGroup, UserGroup.group_id == Group.id)
             .filter(UserGroup.user_id == self.id)
+        )
 
         groups = query.all()
 
-        return [{'id': id, 'name': name} for id, name in groups]
+        return [{"id": id, "name": name} for id, name in groups]
 
     def get_datasets_adminning(self):
         # move to DatasetAdmin
-        from .dataset_admin import DatasetAdmin
         from .dataset import Dataset
+        from .dataset_admin import DatasetAdmin
 
-        query = db.session.query(DatasetAdmin.dataset_id, Dataset.name)\
-            .join(Dataset, DatasetAdmin.dataset_id == Dataset.id)\
+        query = (
+            db.session.query(DatasetAdmin.dataset_id, Dataset.name)
+            .join(Dataset, DatasetAdmin.dataset_id == Dataset.id)
             .filter(DatasetAdmin.user_id == self.id)
-        
+        )
+
         datasets = query.all()
-        
-        return [{'id': dataset_id, 'name': dataset_name} for dataset_id, dataset_name in datasets]
+
+        return [
+            {"id": dataset_id, "name": dataset_name}
+            for dataset_id, dataset_name in datasets
+        ]
 
     def datasets_missing_tos(self):
+        from .dataset import Dataset
         from .group_dataset_permission import GroupDatasetPermission
         from .permission import Permission
-        from .dataset import Dataset
+        from .tos import Tos
         from .user_group import UserGroup
         from .user_tos import UserTos
-        from .tos import Tos
 
         tos_user_id = self.parent_id if self.is_service_account else self.id
 
-        query = db.session.query(Dataset.id, Dataset.name, Tos.id, Tos.name)\
-            .join(GroupDatasetPermission, GroupDatasetPermission.dataset_id == Dataset.id)\
-            .join(UserGroup, (UserGroup.group_id == GroupDatasetPermission.group_id) & (UserGroup.user_id == self.id))\
-            .join(Permission, Permission.id == GroupDatasetPermission.permission_id)\
-            .join(Tos, Tos.id == Dataset.tos_id)\
-            .join(UserTos, (UserTos.tos_id == Tos.id) & (UserTos.user_id == tos_user_id), isouter=True)\
-            .filter(UserTos.id == None)\
-            .group_by(UserGroup.user_id, GroupDatasetPermission.dataset_id, Dataset.id, Tos.id)
-        
-        return [{'dataset_id': dataset_id, 'dataset_name': dataset_name, 'tos_id': tos_id, 'tos_name': tos_name}
-            for dataset_id, dataset_name, tos_id, tos_name in query.distinct()]
+        query = (
+            db.session.query(Dataset.id, Dataset.name, Tos.id, Tos.name)
+            .join(
+                GroupDatasetPermission, GroupDatasetPermission.dataset_id == Dataset.id
+            )
+            .join(
+                UserGroup,
+                (UserGroup.group_id == GroupDatasetPermission.group_id)
+                & (UserGroup.user_id == self.id),
+            )
+            .join(Permission, Permission.id == GroupDatasetPermission.permission_id)
+            .join(Tos, Tos.id == Dataset.tos_id)
+            .join(
+                UserTos,
+                (UserTos.tos_id == Tos.id) & (UserTos.user_id == tos_user_id),
+                isouter=True,
+            )
+            .filter(UserTos.id == None)
+            .group_by(
+                UserGroup.user_id, GroupDatasetPermission.dataset_id, Dataset.id, Tos.id
+            )
+        )
+
+        return [
+            {
+                "dataset_id": dataset_id,
+                "dataset_name": dataset_name,
+                "tos_id": tos_id,
+                "tos_name": tos_name,
+            }
+            for dataset_id, dataset_name, tos_id, tos_name in query.distinct()
+        ]
 
     def _get_permissions(self, ignore_tos=False):
         # messy dependencies, not sure if it should be moved
+        from .dataset import Dataset
         from .group_dataset_permission import GroupDatasetPermission
         from .permission import Permission
-        from .dataset import Dataset
         from .user_group import UserGroup
         from .user_tos import UserTos
 
         tos_user_id = self.parent_id if self.is_service_account else self.id
 
-        query = db.session.query(GroupDatasetPermission.dataset_id, Dataset.name, Permission.name)\
-            .join(UserGroup, (UserGroup.group_id == GroupDatasetPermission.group_id) & (UserGroup.user_id == self.id))\
-            .join(Permission, Permission.id == GroupDatasetPermission.permission_id)\
-            .join(Dataset, Dataset.id == GroupDatasetPermission.dataset_id)\
-            .join(UserTos, (UserTos.tos_id == Dataset.tos_id) & (UserTos.user_id == tos_user_id), isouter=True)\
-            .group_by(UserGroup.user_id, GroupDatasetPermission.dataset_id, Dataset.name, Permission.name)
+        query = (
+            db.session.query(
+                GroupDatasetPermission.dataset_id, Dataset.name, Permission.name
+            )
+            .join(
+                UserGroup,
+                (UserGroup.group_id == GroupDatasetPermission.group_id)
+                & (UserGroup.user_id == self.id),
+            )
+            .join(Permission, Permission.id == GroupDatasetPermission.permission_id)
+            .join(Dataset, Dataset.id == GroupDatasetPermission.dataset_id)
+            .join(
+                UserTos,
+                (UserTos.tos_id == Dataset.tos_id) & (UserTos.user_id == tos_user_id),
+                isouter=True,
+            )
+            .group_by(
+                UserGroup.user_id,
+                GroupDatasetPermission.dataset_id,
+                Dataset.name,
+                Permission.name,
+            )
+        )
 
         if not ignore_tos:
             query = query.filter((Dataset.tos_id == None) | (UserTos.id != None))
@@ -316,15 +396,17 @@ class User(db.Model):
         if self.read_only:
             query = query.filter(Permission.id != 2)
 
-        #TODO: re-add read_only (filter by permission id if read_only is true)
+        # TODO: re-add read_only (filter by permission id if read_only is true)
 
         permissions = query.all()
 
         temp = {}
 
         for dataset_id, dataset_name, permission_name in permissions:
-            temp[dataset_id] = temp.get(dataset_id, {'id': dataset_id, 'name': dataset_name, 'permissions': []})
-            temp[dataset_id]['permissions'] += [permission_name]
+            temp[dataset_id] = temp.get(
+                dataset_id, {"id": dataset_id, "name": dataset_name, "permissions": []}
+            )
+            temp[dataset_id]["permissions"] += [permission_name]
 
         return temp.values()
 
@@ -333,22 +415,27 @@ class User(db.Model):
         permissions_v2_ignore_tos = self._get_permissions(ignore_tos=True)
 
         def permission_to_level(p):
-            return {'none': 0, 'view': 1, 'edit': 2}.get(p, 0)
+            return {"none": 0, "view": 1, "edit": 2}.get(p, 0)
 
         return {
-            'id': self.id,
+            "id": self.id,
             "parent_id": self.parent_id,
             "service_account": self.parent_id is not None,
-            'name': self.public_name,
-            'email': self.email,
-            'admin': self.admin,
-            'pi': self.pi,
-            'affiliations': self.user_affiliations,
-            'groups': [x['name'] for x in self.get_groups()],
-            'permissions': {x['name']: max(map(permission_to_level, x['permissions'])) for x in permissions},
-            'permissions_v2': {x['name']: x['permissions'] for x in permissions},
-            'permissions_v2_ignore_tos': {x['name']: x['permissions'] for x in permissions_v2_ignore_tos},
-            'missing_tos': self.datasets_missing_tos(),
+            "name": self.public_name,
+            "email": self.email,
+            "admin": self.admin,
+            "pi": self.pi,
+            "affiliations": self.user_affiliations,
+            "groups": [x["name"] for x in self.get_groups()],
+            "permissions": {
+                x["name"]: max(map(permission_to_level, x["permissions"]))
+                for x in permissions
+            },
+            "permissions_v2": {x["name"]: x["permissions"] for x in permissions},
+            "permissions_v2_ignore_tos": {
+                x["name"]: x["permissions"] for x in permissions_v2_ignore_tos
+            },
+            "missing_tos": self.datasets_missing_tos(),
         }
 
     def generate_token(self, ex=None):
@@ -358,8 +445,8 @@ class User(db.Model):
     def get_service_account_token(self):
         tokens = r.smembers(self.tokens_key)
 
-        for token_bytes in tokens: # should only be one
-            return token_bytes.decode('utf-8')
+        for token_bytes in tokens:  # should only be one
+            return token_bytes.decode("utf-8")
 
     def get_service_accounts(self):
         return User.query.filter_by(parent_id=self.id).all()
@@ -370,11 +457,11 @@ class User(db.Model):
         tokens = r.smembers(self.tokens_key)
 
         for token_bytes in tokens:
-            token = token_bytes.decode('utf-8')
-            ttl = r.ttl("token_" + token) # update token without changing ttl
+            token = token_bytes.decode("utf-8")
+            ttl = r.ttl("token_" + token)  # update token without changing ttl
 
-            if ttl == -2: # doesn't exist (expired)
+            if ttl == -2:  # doesn't exist (expired)
                 r.srem(self.tokens_key, token)
             else:
-                ttl = ttl if ttl != -1 else None # -1 is no expiration (API KEYS)
+                ttl = ttl if ttl != -1 else None  # -1 is no expiration (API KEYS)
                 r.set("token_" + token, user_json, nx=False, ex=ttl)

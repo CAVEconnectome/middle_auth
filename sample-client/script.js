@@ -1,107 +1,119 @@
 // returns a token to be used with services that use the given auth service
 async function authorize(auth_url) {
-	const oauth_uri = await fetch(`https://${auth_url}/authorize?redirect=${encodeURI(window.location.origin + '/redirect.html')}`, {
-		credentials: 'include'
-	}).then((res) => {
-		return res.text();
-	});
+  const oauth_uri = await fetch(
+    `https://${auth_url}/authorize?redirect=${encodeURI(
+      window.location.origin + "/redirect.html"
+    )}`,
+    {
+      credentials: "include",
+    }
+  ).then((res) => {
+    return res.text();
+  });
 
-	const auth_popup = window.open(oauth_uri);
+  const auth_popup = window.open(oauth_uri);
 
-	if (!auth_popup) {
-		alert('Allow popups on this page to authenticate');
-		return;
-	}
+  if (!auth_popup) {
+    alert("Allow popups on this page to authenticate");
+    return;
+  }
 
-	return new Promise((f, r) => {
-		const tokenListener = (ev) => {
-			if (ev.source === auth_popup) {
-				auth_popup.close();
-				window.removeEventListener("message", tokenListener);
-				f(ev.data.token);
-			}
-		}
-		
-		window.addEventListener("message", tokenListener);
-	});
+  return new Promise((f, r) => {
+    const tokenListener = (ev) => {
+      if (ev.source === auth_popup) {
+        auth_popup.close();
+        window.removeEventListener("message", tokenListener);
+        f(ev.data.token);
+      }
+    };
+
+    window.addEventListener("message", tokenListener);
+  });
 }
 
 function parseWWWAuthHeader(headerVal) {
-	const tuples = headerVal.split('Bearer ')[1].split(', ').map((x) => x.split('='));
-	const wwwAuthMap = {};
+  const tuples = headerVal
+    .split("Bearer ")[1]
+    .split(", ")
+    .map((x) => x.split("="));
+  const wwwAuthMap = {};
 
-	for ([key, val] of tuples) {
-		wwwAuthMap[key] = val.replace(/"/g,"");
-	}
+  for ([key, val] of tuples) {
+    wwwAuthMap[key] = val.replace(/"/g, "");
+  }
 
-	return wwwAuthMap;
+  return wwwAuthMap;
 }
 
 function authFetch(input, init, retry = 1) {
-	if (!input) {
-		return fetch(input); // to keep the errors consistent
-	}
+  if (!input) {
+    return fetch(input); // to keep the errors consistent
+  }
 
-	const token = localStorage.getItem('auth_token');
+  const token = localStorage.getItem("auth_token");
 
-	options = init ? JSON.parse(JSON.stringify(init)) : {};
-	
-	if (token) {
-		options.headers = options.headers || new Headers();
+  options = init ? JSON.parse(JSON.stringify(init)) : {};
 
-		// Headers object seems to be the correct format but a regular object is supported as well
-		if (options.headers instanceof Headers) {
-			options.headers.append('Authorization', `Bearer ${token}`);
-		} else {
-			options.headers['Authorization'] = `Bearer ${token}`;
-		}
-	}
+  if (token) {
+    options.headers = options.headers || new Headers();
 
-	return fetch(input, options).then((res) => {
-		if ([400, 401].includes(res.status)) {
-			const wwwAuth = res.headers.get('WWW-Authenticate');
+    // Headers object seems to be the correct format but a regular object is supported as well
+    if (options.headers instanceof Headers) {
+      options.headers.append("Authorization", `Bearer ${token}`);
+    } else {
+      options.headers["Authorization"] = `Bearer ${token}`;
+    }
+  }
 
-			if (wwwAuth) {
-				if (wwwAuth.startsWith('Bearer ')) {
-					const wwwAuthMap = parseWWWAuthHeader(wwwAuth);
+  return fetch(input, options).then((res) => {
+    if ([400, 401].includes(res.status)) {
+      const wwwAuth = res.headers.get("WWW-Authenticate");
 
-					if (!wwwAuthMap.error || wwwAuthMap.error === 'invalid_token') {
-						// missing or expired
-						if (retry > 0) {
-							return reauthenticate(wwwAuthMap.realm).then(() => {
-								return authFetch(input, init, retry - 1);
-							});
-						}
-					}
+      if (wwwAuth) {
+        if (wwwAuth.startsWith("Bearer ")) {
+          const wwwAuthMap = parseWWWAuthHeader(wwwAuth);
 
-					throw new Error(`status ${res.status} auth error - ${wwwAuthMap.error} + " Reason: ${wwwAuthMap.error_description}`);
-				}
-			}
-		}
+          if (!wwwAuthMap.error || wwwAuthMap.error === "invalid_token") {
+            // missing or expired
+            if (retry > 0) {
+              return reauthenticate(wwwAuthMap.realm).then(() => {
+                return authFetch(input, init, retry - 1);
+              });
+            }
+          }
 
-		return res;
-	});
+          throw new Error(
+            `status ${res.status} auth error - ${wwwAuthMap.error} + " Reason: ${wwwAuthMap.error_description}`
+          );
+        }
+      }
+    }
+
+    return res;
+  });
 }
 
 function reauthenticate(realm) {
-	return authorize(realm).then((token) => {
-		localStorage.setItem('auth_token', token);
-	});
+  return authorize(realm).then((token) => {
+    localStorage.setItem("auth_token", token);
+  });
 }
 
-const logoutBtn = document.getElementById('logoutBtn');
+const logoutBtn = document.getElementById("logoutBtn");
 
-logoutBtn.addEventListener('click', () => {
-	authFetch(`${AUTH_URL}/logout`);
+logoutBtn.addEventListener("click", () => {
+  authFetch(`${AUTH_URL}/logout`);
 });
 
-const userDataEl = document.getElementById('userData');
+const userDataEl = document.getElementById("userData");
 
-const AUTH_URL = 'https://dev.dynamicannotationframework.com/auth/api/v1';
+const AUTH_URL = "https://dev.dynamicannotationframework.com/auth/api/v1";
 
-authFetch(`${AUTH_URL}/test`).then((res) => {
-	return res.json();
-}).then((userData) => {
-	document.body.classList.toggle('loggedIn', true);
-	userDataEl.innerHTML = JSON.stringify(userData, null, '\t');
-});
+authFetch(`${AUTH_URL}/test`)
+  .then((res) => {
+    return res.json();
+  })
+  .then((userData) => {
+    document.body.classList.toggle("loggedIn", true);
+    userDataEl.innerHTML = JSON.stringify(userData, null, "\t");
+  });

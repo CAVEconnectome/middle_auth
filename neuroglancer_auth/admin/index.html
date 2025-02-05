@@ -1,43 +1,54 @@
 <html>
-    <head>
-            <link rel="stylesheet" type="text/css" href="style.css">
-            <script src="https://unpkg.com/vue@2.6.14"></script>
-            <script src="https://unpkg.com/vue-router@3.5.3"></script>
-            <script src="https://unpkg.com/vue-simple-suggest@1.11.2"></script>
-    </head>
-    <body>
-        <div id="vueApp">
-            <transition name="networkMessage">
-                <div id="networkMessage" v-if="networkResponse" :class="{ error: networkResponse.error }">{{ networkResponse.message }}</div>
-            </transition>
-            <div id="menuBar">
-                <div class="title">Admin Panel</div>
-                <div v-if="loggedInUser === null" id="loggedOutUserBar">
-                    <button @click="login(true)" id="loginBtn">Login</button>
-                </div>
-                <div v-if="loggedInUser" id="loggedInUserBar">
-                    <router-link :to="{ name: 'userData', params: { id: loggedInUser.id }}">
-                        {{ loggedInUser.name }} ({{ loggedInUser.email }})
-                    </router-link>
-                    <button @click="logout">Logout</button>
-                </div>
-            </div>
-
-            <div v-if="loggedInUser && (loggedInUser.admin || loggedInUser.admin_datasets)" id="main">
-                <div>
-                    <router-link to="/user">Users</router-link>
-                    <router-link to="/service_account">Service Accounts</router-link>
-                    <router-link to="/group">Groups</router-link>
-                    <router-link to="/dataset">Datasets</router-link>
-                    <router-link to="/tos">Terms of Service</router-link>
-                    <router-link to="/permission">Permissions</router-link>
-                    <router-link to="/stats">Stats</router-link>
-                </div>
-                <div id="mainContent">
-                    <router-view></router-view>
-                </div>
-            </div>
+  <head>
+    <link rel="stylesheet" type="text/css" href="style.css" />
+    <script src="https://unpkg.com/vue@2.6.14"></script>
+    <script src="https://unpkg.com/vue-router@3.5.3"></script>
+    <script src="https://unpkg.com/vue-simple-suggest@1.11.2"></script>
+  </head>
+  <body>
+    <div id="vueApp">
+      <transition name="networkMessage">
+        <div
+          id="networkMessage"
+          v-if="networkResponse"
+          :class="{ error: networkResponse.error }"
+        >
+          {{ networkResponse.message }}
         </div>
-    </body>
-    <script src="./script.js"></script>
+      </transition>
+      <div id="menuBar">
+        <div class="title">Admin Panel</div>
+        <div v-if="loggedInUser === null" id="loggedOutUserBar">
+          <button @click="login(true)" id="loginBtn">Login</button>
+        </div>
+        <div v-if="loggedInUser" id="loggedInUserBar">
+          <router-link
+            :to="{ name: 'userData', params: { id: loggedInUser.id }}"
+          >
+            {{ loggedInUser.name }} ({{ loggedInUser.email }})
+          </router-link>
+          <button @click="logout">Logout</button>
+        </div>
+      </div>
+
+      <div
+        v-if="loggedInUser && (loggedInUser.admin || loggedInUser.admin_datasets)"
+        id="main"
+      >
+        <div>
+          <router-link to="/user">Users</router-link>
+          <router-link to="/service_account">Service Accounts</router-link>
+          <router-link to="/group">Groups</router-link>
+          <router-link to="/dataset">Datasets</router-link>
+          <router-link to="/tos">Terms of Service</router-link>
+          <router-link to="/permission">Permissions</router-link>
+          <router-link to="/stats">Stats</router-link>
+        </div>
+        <div id="mainContent">
+          <router-view></router-view>
+        </div>
+      </div>
+    </div>
+  </body>
+  <script src="./script.js"></script>
 </html>

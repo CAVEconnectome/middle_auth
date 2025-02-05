@@ -1,5 +1,6 @@
 from .base import db
 
+
 class Group(db.Model):
     id = db.Column(db.Integer, primary_key=True, autoincrement=True)
     name = db.Column(db.String(120), unique=True, nullable=False)
@@ -20,7 +21,7 @@ class Group(db.Model):
     @staticmethod
     def search_by_name(name):
         if name:
-            return Group.query.filter(Group.name.ilike(f'%{name}%')).all()
+            return Group.query.filter(Group.name.ilike(f"%{name}%")).all()
         else:
             return Group.query.order_by(Group.id.asc()).all()
 
@@ -33,7 +34,6 @@ class Group(db.Model):
 
     def update_cache(self):
         # move to UserGroup
-        from .user import User
         from .user_group import UserGroup
 
         users = UserGroup.get_users(self.id)
