@@ -336,7 +336,7 @@ def logout_all():
 
 
 @api_v1_bp.route("/user")
-@auth_required
+@requires_some_admin()
 def get_users_by_filter():
     users = None
 
@@ -701,7 +701,7 @@ def remove_dataset_to_group_route(dataset_id, group_id, permission_id):
 
 
 @api_v1_bp.route("/group", methods=["GET"])
-@auth_required
+@requires_some_admin
 def get_all_groups():
     groups = Group.search_by_name(flask.request.args.get("name"))
     return flask.jsonify([group.as_dict() for group in groups])
