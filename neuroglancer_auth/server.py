@@ -36,7 +36,7 @@ from .model.user_custom_name import UserCustomName
 from .model.user_group import UserGroup
 from .model.user_tos import UserTos
 
-__version__ = "2.29.0"
+__version__ = "2.30.0"
 
 
 def permissionLookUp(token):
