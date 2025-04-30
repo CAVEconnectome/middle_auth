@@ -336,7 +336,7 @@ def logout_all():
 
 
 @api_v1_bp.route("/user")
-@requires_some_admin()
+@requires_some_admin
 def get_users_by_filter():
     users = None
 
