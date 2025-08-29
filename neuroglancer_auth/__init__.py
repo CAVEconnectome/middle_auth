@@ -15,7 +15,7 @@ from .model.base import db
 from .model.user import User
 from .server import blueprints, sticky_blueprints
 
-__version__ = "2.30.1"
+__version__ = "2.30.2"
 
 
 def setup_app():
