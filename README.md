@@ -44,6 +44,14 @@ This is an optional mapping of users to institutions with start and end dates, m
 ### app
 
 This is list of the neuroglancer deployments that this auth service "trusts", this is a security feature of neuroglancer meant to prevent users from being tricked into providing their data to an untrusted application. New deployments need to list the webpages that are allowed to forward requests to middle_auth.
+# admininstrative interfaces
+
+## https://{SERVER_ADDRESS}/auth/admin/index.html
+This is the original admin interface which has customized views and forms for editing permissions on datasets, groups, users and TOS. 
+
+## https://{SERVER_ADDRESS}/sticky_auth/flask_admin/
+
+This is an out of the box flask_admin site for editing all the data in the database auth model, it has no customizations to make searching or editing models easy, but it is complete. Currently TableMapping is only editable in this interface.
 
 # deploying a new version
 
