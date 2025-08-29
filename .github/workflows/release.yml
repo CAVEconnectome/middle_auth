@@ -114,7 +114,7 @@ jobs:
         id: update-chart
         run: |
           cd helm-charts
-          chart_file="charts/middle-auth-service/Chart.yaml"
+          chart_file="charts/auth/Chart.yaml"
           
           # Update both appVersion and chart version to match application version
           sed -i "s/^appVersion: .*/appVersion: \"${{ needs.bump.outputs.VERSION }}\"/" $chart_file
@@ -129,8 +129,8 @@ jobs:
           cd helm-charts
           git config --local user.email "github-actions[bot]@users.noreply.github.com"
           git config --local user.name "github-actions[bot]"
-          git add charts/middle-auth-service/Chart.yaml
-          git commit -m "Update middle-auth-service to v${{ needs.bump.outputs.VERSION }}
+          git add charts/auth/Chart.yaml
+          git commit -m "Update middle-auth to v${{ needs.bump.outputs.VERSION }}
 
           - Update appVersion to ${{ needs.bump.outputs.VERSION }}
           - Update chart version to ${{ needs.bump.outputs.VERSION }}
