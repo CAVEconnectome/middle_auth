@@ -1329,6 +1329,10 @@ def replace_dataset(scim_id):
     # Convert SCIM to internal format
     dataset_data = DatasetSCIMSerializer.from_scim(data)
     
+    # Update external_id directly (Dataset.update() only processes name and tos_id)
+    if "external_id" in dataset_data:
+        dataset.external_id = dataset_data["external_id"]
+    
     # Update dataset using existing method
     dataset.update(dataset_data)
     
