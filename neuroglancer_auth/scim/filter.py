@@ -126,6 +126,9 @@ class SCIMFilterParser:
         Returns:
             Modified query
         """
+        if not filter_expr or not filter_expr.strip():
+            return query
+        
         from ..model.user import User
         
         # Map SCIM attributes to User model attributes
@@ -138,13 +141,20 @@ class SCIMFilterParser:
             "active": None,  # Always true for existing users
         }
         
-
-        parser = SCIMParser()
-        ast = parser.parse(filter_expr)
-        
-        condition = SCIMFilterParser._ast_to_sqlalchemy(ast, attr_map, query)
-        if condition is not None:
-            query = query.filter(condition)
+        try:
+            parser = SCIMParser()
+            ast = parser.parse(filter_expr)
+            
+            condition = SCIMFilterParser._ast_to_sqlalchemy(ast, attr_map, query)
+            if condition is not None:
+                query = query.filter(condition)
+        except Exception as e:
+            # Invalid filter - return query as-is (or could raise error)
+            # Log the error for debugging
+            import logging
+            logger = logging.getLogger(__name__)
+            logger.warning(f"Invalid SCIM filter expression: {filter_expr}, error: {str(e)}", exc_info=True)
+            pass
 
         return query
     
@@ -160,20 +170,29 @@ class SCIMFilterParser:
         Returns:
             Modified query
         """
-
+        if not filter_expr or not filter_expr.strip():
+            return query
+        
         from ..model.group import Group
         
         attr_map = {
             "displayName": Group.name,
             "id": Group.id,
         }
-
-        parser = SCIMParser()
-        ast = parser.parse(filter_expr)
         
-        condition = SCIMFilterParser._ast_to_sqlalchemy(ast, attr_map, query)
-        if condition is not None:
-            query = query.filter(condition)
+        try:
+            parser = SCIMParser()
+            ast = parser.parse(filter_expr)
+            
+            condition = SCIMFilterParser._ast_to_sqlalchemy(ast, attr_map, query)
+            if condition is not None:
+                query = query.filter(condition)
+        except Exception as e:
+            # Invalid filter - return query as-is
+            import logging
+            logger = logging.getLogger(__name__)
+            logger.warning(f"Invalid SCIM filter expression: {filter_expr}, error: {str(e)}", exc_info=True)
+            pass
         
         return query
     
@@ -189,6 +208,9 @@ class SCIMFilterParser:
         Returns:
             Modified query
         """
+        if not filter_expr or not filter_expr.strip():
+            return query
+        
         from ..model.dataset import Dataset
         
         attr_map = {
@@ -197,11 +219,18 @@ class SCIMFilterParser:
             "tosId": Dataset.tos_id,
         }
         
-        parser = SCIMParser()
-        ast = parser.parse(filter_expr)
-        
-        condition = SCIMFilterParser._ast_to_sqlalchemy(ast, attr_map, query)
-        if condition is not None:
-            query = query.filter(condition)
+        try:
+            parser = SCIMParser()
+            ast = parser.parse(filter_expr)
+            
+            condition = SCIMFilterParser._ast_to_sqlalchemy(ast, attr_map, query)
+            if condition is not None:
+                query = query.filter(condition)
+        except Exception as e:
+            # Invalid filter - return query as-is
+            import logging
+            logger = logging.getLogger(__name__)
+            logger.warning(f"Invalid SCIM filter expression: {filter_expr}, error: {str(e)}", exc_info=True)
+            pass
         
         return query

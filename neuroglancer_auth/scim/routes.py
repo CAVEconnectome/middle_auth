@@ -17,7 +17,7 @@ from ..model.table_mapping import ServiceTable
 from ..model.user import User
 from ..model.user_group import UserGroup
 from .auth import scim_auth_required
-from .filter import SCIMFilterParser
+from .filter import SCIMFilterError, SCIMFilterParser
 from .serializers import (
     DatasetSCIMSerializer,
     GroupSCIMSerializer,
@@ -363,7 +363,14 @@ def list_users():
     
     # Apply filter
     if filter_expr:
-        query = SCIMFilterParser.apply_user_filter(query, filter_expr)
+        try:
+            query = SCIMFilterParser.apply_user_filter(query, filter_expr)
+        except SCIMFilterError as e:
+            return build_error_response(
+                400,
+                "invalidFilter",
+                f"Invalid filter expression: {str(e)}"
+            )
     
     # Get total count
     total_results = query.count()
