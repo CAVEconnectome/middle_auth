@@ -67,55 +67,49 @@ def scim_auth_required(f):
             
             return f(*args, **kwargs)
         
-        try:
-            result = auth_decorated(*args, **kwargs)
+        result = auth_decorated(*args, **kwargs)
+        
+        # Check if result is an error response that needs SCIM formatting
+        # Note: auth_required returns Response objects for errors, not exceptions
+        if isinstance(result, flask.Response):
+            status_code = result.status_code
             
-            # Check if result is an error response that needs SCIM formatting
-            if isinstance(result, flask.Response):
-                status_code = result.status_code
-                
-                # If it's an auth error (400/401/403), ensure it's SCIM-formatted
-                if status_code in [400, 401, 403]:
-                    # Check if already SCIM-formatted
-                    try:
-                        import json
-                        content_type = result.headers.get("Content-Type", "")
-                        if "application/scim+json" in content_type:
-                            # Already SCIM-formatted, return as-is
-                            return result
-                        
-                        # Try to parse response body
-                        data = json.loads(result.get_data(as_text=True))
-                        if "schemas" in data and "urn:ietf:params:scim:api:messages:2.0:Error" in data.get("schemas", []):
-                            # Already SCIM-formatted
-                            return result
-                    except (json.JSONDecodeError, ValueError, AttributeError):
-                        pass
+            # If it's an auth error (400/401/403), ensure it's SCIM-formatted
+            if status_code in [400, 401, 403]:
+                # Check if already SCIM-formatted
+                try:
+                    import json
+                    content_type = result.headers.get("Content-Type", "")
+                    if "application/scim+json" in content_type:
+                        # Already SCIM-formatted, return as-is
+                        return result
                     
-                    # Convert to SCIM format
-                    if status_code == 400 or status_code == 401:
-                        # Authentication error - return 401 in SCIM format
-                        return build_error_response(
-                            401,
-                            "invalidCredentials",
-                            "Authentication required",
-                        )
-                    elif status_code == 403:
-                        # Authorization error
-                        return build_error_response(
-                            403,
-                            "insufficientRights",
-                            "SCIM access requires super admin privileges",
-                        )
-            
-            return result
-            
-        except Exception:
-            # If any exception occurs during auth, return SCIM 401
-            return build_error_response(
-                401,
-                "invalidCredentials",
-                "Authentication required",
-            )
+                    # Try to parse response body
+                    data = json.loads(result.get_data(as_text=True))
+                    if "schemas" in data and "urn:ietf:params:scim:api:messages:2.0:Error" in data.get("schemas", []):
+                        # Already SCIM-formatted
+                        return result
+                except (json.JSONDecodeError, ValueError, AttributeError):
+                    pass
+                
+                # Convert to SCIM format
+                if status_code == 400 or status_code == 401:
+                    # Authentication error - return 401 in SCIM format
+                    return build_error_response(
+                        401,
+                        "invalidCredentials",
+                        "Authentication required",
+                    )
+                elif status_code == 403:
+                    # Authorization error
+                    return build_error_response(
+                        403,
+                        "insufficientRights",
+                        "SCIM access requires super admin privileges",
+                    )
+        
+        # Return result (either the endpoint response or an error response)
+        # Exceptions from the endpoint handler will propagate normally
+        return result
     
     return wrapper
