@@ -368,6 +368,22 @@ def get_user(scim_id):
     return build_error_response(404, "NOT_FOUND", f"User {scim_id} not found")
 
 
+def _sanitize_pi_field(pi_value):
+    """
+    Sanitize pi field value to prevent IntegrityError.
+    
+    The pi column is nullable=False with server_default="", so passing None
+    would override the server default and cause an IntegrityError.
+    
+    Args:
+        pi_value: The pi value from user_data (can be None, empty string, or a string)
+        
+    Returns:
+        Empty string if pi_value is None, otherwise returns pi_value as-is
+    """
+    return "" if pi_value is None else pi_value
+
+
 @scim_bp.route("/Users", methods=["POST"])
 @scim_auth_required
 def create_user():
@@ -416,7 +432,7 @@ def create_user():
         user = create_user_with_scim(
             email=user_data["email"],
             name=user_data.get("name", ""),
-            pi=user_data.get("pi"),
+            pi=_sanitize_pi_field(user_data.get("pi")),
             admin=user_data.get("admin", False),
             gdpr_consent=user_data.get("gdpr_consent", False),
             group_names=["default"],
@@ -431,19 +447,39 @@ def create_user():
         response.headers["Location"] = resource["meta"]["location"]
         return response
         
-    except sqlalchemy.exc.IntegrityError:
-        # Race condition: user was created between our check and creation
-        # Return 409 Conflict per SCIM spec (POST is not idempotent)
+    except sqlalchemy.exc.IntegrityError as e:
+        # Rollback invalid session state before querying
         from ..model.base import db
-        db.session.rollback()  # Rollback invalid session state before querying
-        existing_user = User.get_by_email(user_data["email"])
+        db.session.rollback()
+        
+        # Check if this is actually a duplicate email/external_id race condition
+        # by checking if the user now exists
+        existing_user = None
+        if "external_id" in user_data and user_data["external_id"]:
+            existing_user = User.query.filter_by(external_id=user_data["external_id"]).first()
+        if not existing_user:
+            existing_user = User.get_by_email(user_data["email"])
+        
         if existing_user:
+            # This was a race condition: user was created between our check and creation
+            # Return 409 Conflict per SCIM spec (POST is not idempotent)
             return build_error_response(
                 409,
                 "uniqueness",
                 f"User with email '{user_data['email']}' already exists.",
             )
-        # If still not found, return generic conflict error
+        
+        # If still not found, this might be a different IntegrityError (e.g., NULL constraint)
+        # Check the error message to provide better feedback
+        error_msg = str(e.orig) if hasattr(e, 'orig') else str(e)
+        if "NOT NULL" in error_msg or "null value" in error_msg.lower():
+            return build_error_response(
+                400,
+                "invalidValue",
+                f"Required field constraint violation: {error_msg}",
+            )
+        
+        # Generic conflict error for other IntegrityErrors
         return build_error_response(409, "uniqueness", "User already exists")
 
 
@@ -471,7 +507,10 @@ def replace_user(scim_id):
         db.session.commit()
     
     # Update user (remove external_id from update_data as it's already handled)
+    # Also sanitize pi field to prevent IntegrityError if it's None
     update_data = {k: v for k, v in user_data.items() if k != "external_id"}
+    if "pi" in update_data:
+        update_data["pi"] = _sanitize_pi_field(update_data["pi"])
     try:
         if update_data:
             user.update(update_data)
@@ -525,6 +564,9 @@ def patch_user(scim_id):
             elif isinstance(value, dict):
                 # Direct value update
                 user_data = UserSCIMSerializer.from_scim({"schemas": [], **value})
+                # Sanitize pi field to prevent IntegrityError if it's None
+                if "pi" in user_data:
+                    user_data["pi"] = _sanitize_pi_field(user_data["pi"])
                 user.update(user_data)
         
         elif op_type == "add":
