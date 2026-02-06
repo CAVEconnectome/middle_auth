@@ -839,6 +839,69 @@ def replace_group(scim_id):
         group.external_id = group_data["external_id"]
     
     from ..model.base import db
+    
+    # Handle members - PUT is full replace, so replace all members
+    if "members" in data:
+        # Remove all existing members
+        existing_members = UserGroup.query.filter_by(group_id=group.id).all()
+        for member in existing_members:
+            user = User.get_by_id(member.user_id)
+            db.session.delete(member)
+            user.update_cache()  # Update user cache after removal
+        
+        # Commit deletions before adding new members
+        db.session.commit()
+        
+        # Add new members from request
+        members = data.get("members", [])
+        for member in members:
+            member_scim_id = member.get("value")
+            member_user = find_user_by_scim_identifier(scim_id=member_scim_id)
+            if member_user:
+                try:
+                    UserGroup.add(member_user.id, group.id)
+                    member_user.update_cache()  # Update member cache
+                except sqlalchemy.exc.IntegrityError:
+                    pass  # Already in group (shouldn't happen after delete, but handle gracefully)
+    
+    # Handle permissions - PUT is full replace, so replace all permissions
+    permissions_ext = data.get(
+        "urn:ietf:params:scim:schemas:neuroglancer:2.0:GroupPermissions", {}
+    )
+    if permissions_ext or "urn:ietf:params:scim:schemas:neuroglancer:2.0:GroupPermissions" in data.get("schemas", []):
+        # Remove all existing permissions for this group
+        GroupDatasetPermission.query.filter_by(group_id=group.id).delete()
+        db.session.commit()  # Commit deletions before adding new permissions
+        
+        # Add new permissions from request
+        dataset_perms = permissions_ext.get("datasetPermissions", [])
+        for dp in dataset_perms:
+            if isinstance(dp, dict):
+                dataset_scim_id = dp.get("datasetId")
+                permission_names = dp.get("permissions", [])
+                
+                dataset = find_dataset_by_scim_identifier(scim_id=dataset_scim_id)
+                if not dataset:
+                    continue
+                
+                # Map permission names to IDs
+                permission_ids = []
+                for perm_name in permission_names:
+                    perm = Permission.query.filter_by(name=perm_name).first()
+                    if perm:
+                        permission_ids.append(perm.id)
+                
+                # Add permissions
+                if permission_ids:
+                    try:
+                        GroupDatasetPermission.add(
+                            group_id=group.id,
+                            dataset_id=dataset.id,
+                            permission_ids=permission_ids
+                        )
+                    except sqlalchemy.exc.IntegrityError:
+                        pass  # Permission already exists (shouldn't happen after delete, but handle gracefully)
+    
     db.session.commit()
     group.update_cache()  # Update user caches
     
