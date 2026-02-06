@@ -708,7 +708,7 @@ def list_groups():
     groups = query.offset(offset).limit(count).all()
     
     # Serialize
-    resources = [GroupSCIMSerializer.to_scim(group) for group in groups]
+    resources = [GroupSCIMSerializer.to_scim(group, include_members=False, include_permissions=False) for group in groups]
     
     # Build response
     response = build_list_response(resources, total_results, start_index, len(resources))
