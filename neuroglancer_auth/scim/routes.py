@@ -5,7 +5,7 @@ Implements SCIM 2.0 endpoints for Users, Groups, and Datasets (custom resource t
 """
 
 import re
-
+import os
 import flask
 import sqlalchemy
 from ..model.dataset import Dataset
