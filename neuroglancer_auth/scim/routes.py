@@ -9,6 +9,7 @@ import os
 import flask
 import sqlalchemy
 from ..model.dataset import Dataset
+from ..model.dataset_admin import DatasetAdmin
 from ..model.group import Group
 from ..model.group_dataset_permission import GroupDatasetPermission
 from ..model.permission import Permission
@@ -1451,10 +1452,30 @@ def delete_dataset(scim_id):
     if not dataset:
         return build_error_response(404, "NOT_FOUND", f"Dataset {scim_id} not found")
     
-    # Delete dataset (remove ServiceTable mappings first)
-    ServiceTable.query.filter_by(dataset_id=dataset.id).delete()
     from ..model.base import db
     
+    # Delete all related records before deleting the dataset
+    # 1. Delete ServiceTable mappings
+    ServiceTable.query.filter_by(dataset_id=dataset.id).delete()
+    
+    # 2. Delete GroupDatasetPermission records and update affected group caches
+    affected_groups = (
+        db.session.query(GroupDatasetPermission.group_id)
+        .filter_by(dataset_id=dataset.id)
+        .distinct()
+        .all()
+    )
+    GroupDatasetPermission.query.filter_by(dataset_id=dataset.id).delete()
+    # Update cache for affected groups
+    for (group_id,) in affected_groups:
+        group = Group.get_by_id(group_id)
+        if group:
+            group.update_cache()
+    
+    # 3. Delete DatasetAdmin records
+    DatasetAdmin.query.filter_by(dataset_id=dataset.id).delete()
+    
+    # 4. Delete the dataset
     db.session.delete(dataset)
     db.session.commit()
     
