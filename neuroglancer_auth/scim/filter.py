@@ -2,18 +2,22 @@
 SCIM filter parser and query builder.
 
 Supports SCIM filter expressions as defined in RFC 7644 §3.4.2.2.
+Uses scim2-filter-parser for robust, RFC-compliant parsing.
 """
 
-from typing import Any, Callable, Dict, List, Optional, Tuple
+from typing import Any, Dict, Optional
 
 from sqlalchemy import and_, or_, not_
 from sqlalchemy.orm import Query
 
+from scim2_filter_parser.parser import Parser as SCIMParser
+
+
 
 class SCIMFilterParser:
-    """Parser for SCIM filter expressions."""
+    """Parser for SCIM filter expressions using scim2-filter-parser."""
     
-    # SCIM filter operators
+    # SCIM filter operators mapped to SQLAlchemy conditions
     OPERATORS = {
         "eq": lambda attr, val: attr == val,
         "ne": lambda attr, val: attr != val,
@@ -28,43 +32,87 @@ class SCIMFilterParser:
     }
     
     @staticmethod
-    def parse_filter(filter_expr: str) -> Tuple[str, str, str]:
+    def _ast_to_sqlalchemy(
+        ast_node: Any,
+        attr_map: Dict[str, Any],
+        query: Query
+    ) -> Optional[Any]:
         """
-        Parse a simple SCIM filter expression.
-        
-        Format: attribute operator "value"
-        Example: userName eq "user@example.com"
+        Convert SCIM AST node to SQLAlchemy condition.
         
         Args:
-            filter_expr: SCIM filter expression
+            ast_node: AST node from scim2-filter-parser
+            attr_map: Mapping of SCIM attribute names to SQLAlchemy model attributes
+            query: SQLAlchemy query object
             
         Returns:
-            Tuple of (attribute, operator, value)
+            SQLAlchemy condition or None if attribute not mapped
         """
-        # Simple parser - handles basic cases
-        # For full SCIM filter support, consider using a proper parser library
+        # Check for attribute expression (has attribute_path, operator, comp_value)
+        if hasattr(ast_node, 'attribute_path') and hasattr(ast_node, 'operator'):
+            # Attribute comparison: attr operator value
+            attr_name = ast_node.attribute_path
+            operator = ast_node.operator
+            value = getattr(ast_node, 'comp_value', None)
+            
+            # Map SCIM attribute to SQLAlchemy attribute
+            if attr_name not in attr_map or attr_map[attr_name] is None:
+                return None
+            
+            sqlalchemy_attr = attr_map[attr_name]
+            
+            # Get operator function
+            if operator not in SCIMFilterParser.OPERATORS:
+                return None
+            
+            op_func = SCIMFilterParser.OPERATORS[operator]
+            
+            # Convert value if needed (handle boolean/None)
+            if value is None:
+                # For "pr" operator, value is ignored
+                if operator == "pr":
+                    return op_func(sqlalchemy_attr, None)
+                return None
+            
+            # Handle boolean strings
+            if isinstance(value, str):
+                if value.lower() == "true":
+                    value = True
+                elif value.lower() == "false":
+                    value = False
+            
+            return op_func(sqlalchemy_attr, value)
         
-        # Remove quotes from value
-        filter_expr = filter_expr.strip()
+        # Check for logical expression (has left, right, operator)
+        elif hasattr(ast_node, 'left') and hasattr(ast_node, 'right') and hasattr(ast_node, 'operator'):
+            # Logical operator: and/or
+            left = SCIMFilterParser._ast_to_sqlalchemy(ast_node.left, attr_map, query)
+            right = SCIMFilterParser._ast_to_sqlalchemy(ast_node.right, attr_map, query)
+            
+            if left is None and right is None:
+                return None
+            if left is None:
+                return right
+            if right is None:
+                return left
+            
+            operator = ast_node.operator
+            if operator == "and":
+                return and_(left, right)
+            elif operator == "or":
+                return or_(left, right)
+            else:
+                return None
         
-        # Special case: "pr" (present) operator is unary - syntax: "attributeName pr"
-        # Check for "pr" at the end (with space before, no space after)
-        if filter_expr.endswith(" pr"):
-            attr = filter_expr[:-3].strip()  # Everything before " pr"
-            return (attr, "pr", "")  # pr operator has no value
+        # Check for not expression (has expression attribute but not left/right)
+        elif hasattr(ast_node, 'expression') and not (hasattr(ast_node, 'left') and hasattr(ast_node, 'right')):
+            # Not operator
+            condition = SCIMFilterParser._ast_to_sqlalchemy(ast_node.expression, attr_map, query)
+            if condition is None:
+                return None
+            return not_(condition)
         
-        # Find operator (binary operators with spaces on both sides)
-        for op in SCIMFilterParser.OPERATORS.keys():
-            if op == "pr":
-                continue  # Already handled above
-            if f" {op} " in filter_expr:
-                parts = filter_expr.split(f" {op} ", 1)
-                if len(parts) == 2:
-                    attr = parts[0].strip()
-                    val = parts[1].strip().strip('"').strip("'")
-                    return (attr, op, val)
-        
-        raise ValueError(f"Invalid filter expression: {filter_expr}")
+        return None
     
     @staticmethod
     def apply_user_filter(query: Query, filter_expr: str) -> Query:
@@ -90,53 +138,14 @@ class SCIMFilterParser:
             "active": None,  # Always true for existing users
         }
         
-        try:
-            attr_name, operator, value = SCIMFilterParser.parse_filter(filter_expr)
-            
-            # Handle complex filters (and/or/not) - simplified for now
-            # Use case-insensitive search but preserve original case for attribute names
-            filter_lower = filter_expr.lower()
-            if " and " in filter_lower:
-                # Find the actual case of " and " in the original string
-                and_pos = filter_lower.find(" and ")
-                and_str = filter_expr[and_pos:and_pos+5]  # Preserve original case
-                parts = filter_expr.split(and_str)
-                conditions = []
-                for part in parts:
-                    try:
-                        a, o, v = SCIMFilterParser.parse_filter(part.strip())
-                        if a in attr_map and attr_map[a] is not None:
-                            op_func = SCIMFilterParser.OPERATORS[o]
-                            conditions.append(op_func(attr_map[a], v))
-                    except ValueError:
-                        pass
-                if conditions:
-                    query = query.filter(and_(*conditions))
-            elif " or " in filter_lower:
-                # Find the actual case of " or " in the original string
-                or_pos = filter_lower.find(" or ")
-                or_str = filter_expr[or_pos:or_pos+4]  # Preserve original case
-                parts = filter_expr.split(or_str)
-                conditions = []
-                for part in parts:
-                    try:
-                        a, o, v = SCIMFilterParser.parse_filter(part.strip())
-                        if a in attr_map and attr_map[a] is not None:
-                            op_func = SCIMFilterParser.OPERATORS[o]
-                            conditions.append(op_func(attr_map[a], v))
-                    except ValueError:
-                        pass
-                if conditions:
-                    query = query.filter(or_(*conditions))
-            else:
-                # Simple filter
-                if attr_name in attr_map and attr_map[attr_name] is not None:
-                    op_func = SCIMFilterParser.OPERATORS[operator]
-                    query = query.filter(op_func(attr_map[attr_name], value))
-        except (ValueError, KeyError):
-            # Invalid filter - return query as-is (or raise error)
-            pass
+
+        parser = SCIMParser()
+        ast = parser.parse(filter_expr)
         
+        condition = SCIMFilterParser._ast_to_sqlalchemy(ast, attr_map, query)
+        if condition is not None:
+            query = query.filter(condition)
+
         return query
     
     @staticmethod
@@ -151,21 +160,20 @@ class SCIMFilterParser:
         Returns:
             Modified query
         """
+
         from ..model.group import Group
         
         attr_map = {
             "displayName": Group.name,
             "id": Group.id,
         }
+
+        parser = SCIMParser()
+        ast = parser.parse(filter_expr)
         
-        try:
-            attr_name, operator, value = SCIMFilterParser.parse_filter(filter_expr)
-            
-            if attr_name in attr_map:
-                op_func = SCIMFilterParser.OPERATORS[operator]
-                query = query.filter(op_func(attr_map[attr_name], value))
-        except (ValueError, KeyError):
-            pass
+        condition = SCIMFilterParser._ast_to_sqlalchemy(ast, attr_map, query)
+        if condition is not None:
+            query = query.filter(condition)
         
         return query
     
@@ -189,13 +197,11 @@ class SCIMFilterParser:
             "tosId": Dataset.tos_id,
         }
         
-        try:
-            attr_name, operator, value = SCIMFilterParser.parse_filter(filter_expr)
-            
-            if attr_name in attr_map:
-                op_func = SCIMFilterParser.OPERATORS[operator]
-                query = query.filter(op_func(attr_map[attr_name], value))
-        except (ValueError, KeyError):
-            pass
+        parser = SCIMParser()
+        ast = parser.parse(filter_expr)
+        
+        condition = SCIMFilterParser._ast_to_sqlalchemy(ast, attr_map, query)
+        if condition is not None:
+            query = query.filter(condition)
         
         return query
