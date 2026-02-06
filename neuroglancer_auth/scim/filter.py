@@ -47,8 +47,16 @@ class SCIMFilterParser:
         # Remove quotes from value
         filter_expr = filter_expr.strip()
         
-        # Find operator
+        # Special case: "pr" (present) operator is unary - syntax: "attributeName pr"
+        # Check for "pr" at the end (with space before, no space after)
+        if filter_expr.endswith(" pr"):
+            attr = filter_expr[:-3].strip()  # Everything before " pr"
+            return (attr, "pr", "")  # pr operator has no value
+        
+        # Find operator (binary operators with spaces on both sides)
         for op in SCIMFilterParser.OPERATORS.keys():
+            if op == "pr":
+                continue  # Already handled above
             if f" {op} " in filter_expr:
                 parts = filter_expr.split(f" {op} ", 1)
                 if len(parts) == 2:
