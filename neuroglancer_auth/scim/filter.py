@@ -86,8 +86,13 @@ class SCIMFilterParser:
             attr_name, operator, value = SCIMFilterParser.parse_filter(filter_expr)
             
             # Handle complex filters (and/or/not) - simplified for now
-            if " and " in filter_expr.lower():
-                parts = filter_expr.lower().split(" and ")
+            # Use case-insensitive search but preserve original case for attribute names
+            filter_lower = filter_expr.lower()
+            if " and " in filter_lower:
+                # Find the actual case of " and " in the original string
+                and_pos = filter_lower.find(" and ")
+                and_str = filter_expr[and_pos:and_pos+5]  # Preserve original case
+                parts = filter_expr.split(and_str)
                 conditions = []
                 for part in parts:
                     try:
@@ -99,8 +104,11 @@ class SCIMFilterParser:
                         pass
                 if conditions:
                     query = query.filter(and_(*conditions))
-            elif " or " in filter_expr.lower():
-                parts = filter_expr.lower().split(" or ")
+            elif " or " in filter_lower:
+                # Find the actual case of " or " in the original string
+                or_pos = filter_lower.find(" or ")
+                or_str = filter_expr[or_pos:or_pos+4]  # Preserve original case
+                parts = filter_expr.split(or_str)
                 conditions = []
                 for part in parts:
                     try:
