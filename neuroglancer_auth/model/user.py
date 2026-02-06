@@ -27,6 +27,9 @@ class User(db.Model):
         "parent_id", db.Integer, db.ForeignKey("user.id"), nullable=True
     )
     read_only = db.Column(db.Boolean, server_default="0", nullable=False)
+    # SCIM fields
+    scim_id = db.Column(db.String(36), unique=True, nullable=True, index=True)
+    external_id = db.Column(db.String(255), nullable=True, index=True)
 
     def __repr__(self):
         return self.name
@@ -142,7 +145,8 @@ class User(db.Model):
 
     @staticmethod
     def create_account(
-        email, name, pi, admin=False, gdpr_consent=False, group_names=[], parent_id=None
+        email, name, pi, admin=False, gdpr_consent=False, group_names=[], parent_id=None,
+        scim_id=None, external_id=None
     ):
         from .group import Group
         from .user_group import UserGroup
@@ -154,6 +158,8 @@ class User(db.Model):
             pi=pi,
             gdpr_consent=gdpr_consent,
             parent_id=parent_id,
+            scim_id=scim_id,
+            external_id=external_id,
         )
         db.session.add(user)
         db.session.flush()  # get inserted id

@@ -80,7 +80,17 @@ user_settings_bp = flask.Blueprint(
     "user_settings_bp", __name__, url_prefix="/" + URL_PREFIX + "/settings"
 )
 
+# Import SCIM blueprint
+try:
+    from .scim import scim_bp
+    SCIM_ENABLED = True
+except ImportError:
+    SCIM_ENABLED = False
+    scim_bp = None
+
 blueprints = [version_bp, api_v1_bp, admin_site_bp]
+if SCIM_ENABLED and scim_bp:
+    blueprints.append(scim_bp)
 
 sticky_blueprints = [
     version_bp,
@@ -89,6 +99,8 @@ sticky_blueprints = [
     user_settings_bp,
     authorize_bp,
 ]
+if SCIM_ENABLED and scim_bp:
+    sticky_blueprints.append(scim_bp)
 
 CLIENT_SECRETS_FILE = os.environ["AUTH_OAUTH_SECRET"]
 SCOPES = [
