@@ -43,6 +43,33 @@ URL_PREFIX = os.environ.get("URL_PREFIX", "auth")
 # Create SCIM blueprint
 scim_bp = flask.Blueprint("scim_bp", __name__, url_prefix="/" + URL_PREFIX + "/scim/v2")
 
+
+def extract_identifier_from_path_filter(path: str) -> str:
+    """
+    Extract identifier from SCIM path filter expression.
+    
+    For paths like 'members[value eq "some-uuid"]', extracts 'some-uuid'.
+    For paths like 'groups[value eq "group-id"]', extracts 'group-id'.
+    
+    Args:
+        path: SCIM path with optional filter expression
+        
+    Returns:
+        Extracted identifier string, or None if no filter found
+    """
+    # Match pattern like: attributeName[value eq "identifier"]
+    match = re.search(r'\[value\s+eq\s+"([^"]+)"\]', path)
+    if match:
+        return match.group(1)
+    
+    # Also handle single quotes
+    match = re.search(r"\[value\s+eq\s+'([^']+)'\]", path)
+    if match:
+        return match.group(1)
+    
+    return None
+
+
 # ============================================================================
 # Discovery Endpoints
 # ============================================================================
@@ -613,14 +640,20 @@ def patch_user(scim_id):
                                     ug.delete()
                                     user.update_cache()  # Update user cache after group change
                 else:
-                    # Single group to remove
-                    group_scim_id = value.get("value") if isinstance(value, dict) else value
-                    group = find_group_by_scim_identifier(scim_id=group_scim_id)
-                    if group:
-                        ug = UserGroup.get(group.id, user.id)
-                        if ug:
-                            ug.delete()
-                            user.update_cache()  # Update user cache after group change
+                    # Path contains filter expression like "groups[value eq \"...\"]"
+                    # Extract identifier from path filter (RFC 7644: remove with filter has no value field)
+                    group_scim_id = extract_identifier_from_path_filter(path)
+                    if not group_scim_id:
+                        # Fallback: try to get from value if provided (for backward compatibility)
+                        group_scim_id = value.get("value") if isinstance(value, dict) else value
+                    
+                    if group_scim_id:
+                        group = find_group_by_scim_identifier(scim_id=group_scim_id)
+                        if group:
+                            ug = UserGroup.get(group.id, user.id)
+                            if ug:
+                                ug.delete()
+                                user.update_cache()  # Update user cache after group change
     
     # Serialize and return
     resource = UserSCIMSerializer.to_scim(user)
@@ -1104,17 +1137,26 @@ def patch_group(scim_id):
                                 if ug:
                                     ug.delete()
                                     member_user.update_cache()  # Update member cache
-                                    group.update_cache()  # Update group cache
+                    if value is None:
+                        # remove all members from group
+                        UserGroup.query.filter_by(group_id=group.id).delete()
+                        group.update_cache()
                 else:
-                    # Single member to remove
-                    member_scim_id = value.get("value") if isinstance(value, dict) else value
-                    member_user = find_user_by_scim_identifier(scim_id=member_scim_id)
-                    if member_user:
-                        ug = UserGroup.get(group.id, member_user.id)
-                        if ug:
-                            ug.delete()
-                            member_user.update_cache()  # Update member cache
-                            group.update_cache()  # Update group cache
+                    # Path contains filter expression like "members[value eq \"...\"]"
+                    # Extract identifier from path filter (RFC 7644: remove with filter has no value field)
+                    member_scim_id = extract_identifier_from_path_filter(path)
+                    if not member_scim_id:
+                        # Fallback: try to get from value if provided (for backward compatibility)
+                        member_scim_id = value.get("value") if isinstance(value, dict) else value
+                    
+                    if member_scim_id:
+                        member_user = find_user_by_scim_identifier(scim_id=member_scim_id)
+                        if member_user:
+                            ug = UserGroup.get(group.id, member_user.id)
+                            if ug:
+                                ug.delete()
+                                member_user.update_cache()  # Update member cache
+                                group.update_cache()  # Update group cache
             elif path.startswith(
                 "urn:ietf:params:scim:schemas:neuroglancer:2.0:GroupPermissions:datasetPermissions"
             ) or path.endswith(":datasetPermissions"):
