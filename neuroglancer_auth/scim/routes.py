@@ -1139,7 +1139,16 @@ def patch_group(scim_id):
                                     member_user.update_cache()  # Update member cache
                     if value is None:
                         # remove all members from group
+                        # Get affected users before deletion to invalidate their caches
+                        affected_users = UserGroup.get_users(group.id)
+                        # Perform bulk delete
+                        from ..model.base import db
                         UserGroup.query.filter_by(group_id=group.id).delete()
+                        db.session.commit()
+                        # Update cache for all affected users
+                        for user in affected_users:
+                            user.update_cache()
+                        # Update group cache
                         group.update_cache()
                 else:
                     # Path contains filter expression like "members[value eq \"...\"]"
