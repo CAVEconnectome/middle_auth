@@ -1094,12 +1094,18 @@ def delete_group(scim_id):
     if not group:
         return build_error_response(404, "NOT_FOUND", f"Group {scim_id} not found")
     
-    # Delete group (remove all memberships first)
+    # Delete group (remove all memberships and permissions first)
     from ..model.user_group import UserGroup
-    
-    UserGroup.query.filter_by(group_id=group.id).delete()
+    from ..model.group_dataset_permission import GroupDatasetPermission
     from ..model.base import db
     
+    # Remove all UserGroup memberships
+    UserGroup.query.filter_by(group_id=group.id).delete()
+    
+    # Remove all GroupDatasetPermission records
+    GroupDatasetPermission.query.filter_by(group_id=group.id).delete()
+    
+    # Now safe to delete the group
     db.session.delete(group)
     db.session.commit()
     
