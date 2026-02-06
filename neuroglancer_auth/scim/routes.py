@@ -434,6 +434,8 @@ def create_user():
     except sqlalchemy.exc.IntegrityError:
         # Race condition: user was created between our check and creation
         # Return 409 Conflict per SCIM spec (POST is not idempotent)
+        from ..model.base import db
+        db.session.rollback()  # Rollback invalid session state before querying
         existing_user = User.get_by_email(user_data["email"])
         if existing_user:
             return build_error_response(
@@ -757,6 +759,8 @@ def create_group():
     except sqlalchemy.exc.IntegrityError:
         # Race condition: group was created between our check and creation
         # Return 409 Conflict per SCIM spec (POST is not idempotent)
+        from ..model.base import db
+        db.session.rollback()  # Rollback invalid session state before querying
         existing_group = Group.query.filter_by(name=group_data["name"]).first()
         if existing_group:
             return build_error_response(
@@ -830,6 +834,36 @@ def patch_group(scim_id):
                 from ..model.base import db
                 db.session.commit()
                 group.update_cache()
+            elif path == "urn:ietf:params:scim:schemas:neuroglancer:2.0:GroupPermissions:datasetPermissions":
+                # Replace entire datasetPermissions array
+                if isinstance(value, list):
+                    # Remove all existing permissions for this group
+                    GroupDatasetPermission.query.filter_by(group_id=group.id).delete()
+                    from ..model.base import db
+                    db.session.commit()
+                    
+                    # Add all new permissions
+                    for dp in value:
+                        if isinstance(dp, dict):
+                            dataset_scim_id = dp.get("datasetId")
+                            permission_names = dp.get("permissions", [])
+                            
+                            dataset = find_dataset_by_scim_identifier(scim_id=dataset_scim_id)
+                            if not dataset:
+                                continue
+                            
+                            permission_ids = []
+                            for perm_name in permission_names:
+                                perm = Permission.query.filter_by(name=perm_name).first()
+                                if perm:
+                                    permission_ids.append(perm.id)
+                            
+                            if permission_ids:
+                                GroupDatasetPermission.add(
+                                    group_id=group.id,
+                                    dataset_id=dataset.id,
+                                    permission_ids=permission_ids
+                                )
             elif path.startswith(
                 "urn:ietf:params:scim:schemas:neuroglancer:2.0:GroupPermissions:datasetPermissions"
             ) or path.endswith(":datasetPermissions"):
@@ -864,36 +898,6 @@ def patch_group(scim_id):
                             dataset_id=dataset.id,
                             permission_ids=permission_ids
                         )
-            elif path == "urn:ietf:params:scim:schemas:neuroglancer:2.0:GroupPermissions:datasetPermissions":
-                # Replace entire datasetPermissions array
-                if isinstance(value, list):
-                    # Remove all existing permissions for this group
-                    GroupDatasetPermission.query.filter_by(group_id=group.id).delete()
-                    from ..model.base import db
-                    db.session.commit()
-                    
-                    # Add all new permissions
-                    for dp in value:
-                        if isinstance(dp, dict):
-                            dataset_scim_id = dp.get("datasetId")
-                            permission_names = dp.get("permissions", [])
-                            
-                            dataset = find_dataset_by_scim_identifier(scim_id=dataset_scim_id)
-                            if not dataset:
-                                continue
-                            
-                            permission_ids = []
-                            for perm_name in permission_names:
-                                perm = Permission.query.filter_by(name=perm_name).first()
-                                if perm:
-                                    permission_ids.append(perm.id)
-                            
-                            if permission_ids:
-                                GroupDatasetPermission.add(
-                                    group_id=group.id,
-                                    dataset_id=dataset.id,
-                                    permission_ids=permission_ids
-                                )
         
         elif op_type == "add":
             if path.startswith("members[") or path == "members":
@@ -922,6 +926,33 @@ def patch_group(scim_id):
                             group.update_cache()  # Update group cache
                         except sqlalchemy.exc.IntegrityError:
                             pass  # Already in group
+            elif path == "urn:ietf:params:scim:schemas:neuroglancer:2.0:GroupPermissions:datasetPermissions":
+                # Add entire datasetPermissions array
+                if isinstance(value, list):
+                    for dp in value:
+                        if isinstance(dp, dict):
+                            dataset_scim_id = dp.get("datasetId")
+                            permission_names = dp.get("permissions", [])
+                            
+                            dataset = find_dataset_by_scim_identifier(scim_id=dataset_scim_id)
+                            if not dataset:
+                                continue
+                            
+                            permission_ids = []
+                            for perm_name in permission_names:
+                                perm = Permission.query.filter_by(name=perm_name).first()
+                                if perm:
+                                    permission_ids.append(perm.id)
+                            
+                            if permission_ids:
+                                try:
+                                    GroupDatasetPermission.add(
+                                        group_id=group.id,
+                                        dataset_id=dataset.id,
+                                        permission_ids=permission_ids
+                                    )
+                                except sqlalchemy.exc.IntegrityError:
+                                    pass
             elif path.startswith(
                 "urn:ietf:params:scim:schemas:neuroglancer:2.0:GroupPermissions:datasetPermissions"
             ) or path.endswith(":datasetPermissions"):
@@ -952,33 +983,6 @@ def patch_group(scim_id):
                             )
                         except sqlalchemy.exc.IntegrityError:
                             pass  # Permission already exists
-            elif path == "urn:ietf:params:scim:schemas:neuroglancer:2.0:GroupPermissions:datasetPermissions":
-                # Add entire datasetPermissions array
-                if isinstance(value, list):
-                    for dp in value:
-                        if isinstance(dp, dict):
-                            dataset_scim_id = dp.get("datasetId")
-                            permission_names = dp.get("permissions", [])
-                            
-                            dataset = find_dataset_by_scim_identifier(scim_id=dataset_scim_id)
-                            if not dataset:
-                                continue
-                            
-                            permission_ids = []
-                            for perm_name in permission_names:
-                                perm = Permission.query.filter_by(name=perm_name).first()
-                                if perm:
-                                    permission_ids.append(perm.id)
-                            
-                            if permission_ids:
-                                try:
-                                    GroupDatasetPermission.add(
-                                        group_id=group.id,
-                                        dataset_id=dataset.id,
-                                        permission_ids=permission_ids
-                                    )
-                                except sqlalchemy.exc.IntegrityError:
-                                    pass
         
         elif op_type == "remove":
             if path.startswith("members[") or path == "members":
@@ -1181,6 +1185,8 @@ def create_dataset():
     except sqlalchemy.exc.IntegrityError:
         # Race condition: dataset was created between our check and creation
         # Return 409 Conflict per SCIM spec (POST is not idempotent)
+        from ..model.base import db
+        db.session.rollback()  # Rollback invalid session state before querying
         existing_dataset = Dataset.query.filter_by(name=dataset_data["name"]).first()
         if existing_dataset:
             return build_error_response(
