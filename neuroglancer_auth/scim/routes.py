@@ -387,37 +387,29 @@ def create_user():
     if "name" not in user_data:
         return build_error_response(400, "invalidValue", "name or displayName required")
     
-    # SCIM Best Practice: Idempotent creation - check if user already exists
-    # Priority: externalId > email
+    # SCIM 2.0 RFC 7644: POST is NOT idempotent - always return 409 Conflict if resource exists
+    # Check for existing user by externalId (if provided) or email
     existing_user = None
     
+    # Check by externalId first (if provided)
     if "external_id" in user_data and user_data["external_id"]:
         existing_user = User.query.filter_by(external_id=user_data["external_id"]).first()
+        if existing_user:
+            return build_error_response(
+                409,
+                "uniqueness",
+                f"User with externalId '{user_data['external_id']}' already exists.",
+            )
     
-    if not existing_user:
-        existing_user = User.get_by_email(user_data["email"])
-    
-    # If user exists, return existing user with its SCIM ID (idempotent creation)
+    # Check by email
+    existing_user = User.get_by_email(user_data["email"])
     if existing_user:
-        # Update external_id if provided and not already set
-        if "external_id" in user_data and user_data["external_id"] and not existing_user.external_id:
-            existing_user.external_id = user_data["external_id"]
-            from ..model.base import db
-            db.session.commit()
-        
-        # Ensure scim_id is set
-        if not existing_user.scim_id:
-            existing_user.scim_id = generate_scim_id(existing_user.id)
-            from ..model.base import db
-            db.session.commit()
-        
-        # Return existing user (200 OK for idempotent creation)
-        resource = UserSCIMSerializer.to_scim(existing_user)
-        response = flask.jsonify(resource)
-        response.status_code = 200  # Existing resource, not 201 Created
-        response.headers["Content-Type"] = "application/scim+json"
-        response.headers["Location"] = resource["meta"]["location"]
-        return response
+        return build_error_response(
+            409,
+            "uniqueness",
+            f"User with email '{user_data['email']}' already exists. "
+            "Search for the user first, then use PATCH to update externalId to link it.",
+        )
     
     # User doesn't exist, create new one
     try:
@@ -441,21 +433,16 @@ def create_user():
         
     except sqlalchemy.exc.IntegrityError:
         # Race condition: user was created between our check and creation
-        # Try to find and return existing user
+        # Return 409 Conflict per SCIM spec (POST is not idempotent)
         existing_user = User.get_by_email(user_data["email"])
         if existing_user:
-            if not existing_user.scim_id:
-                existing_user.scim_id = generate_scim_id(existing_user.id)
-                from ..model.base import db
-                db.session.commit()
-            resource = UserSCIMSerializer.to_scim(existing_user)
-            response = flask.jsonify(resource)
-            response.status_code = 200
-            response.headers["Content-Type"] = "application/scim+json"
-            response.headers["Location"] = resource["meta"]["location"]
-            return response
-        # If still not found, return error
-        return build_error_response(409, "uniqueness", "User with email already exists")
+            return build_error_response(
+                409,
+                "uniqueness",
+                f"User with email '{user_data['email']}' already exists.",
+            )
+        # If still not found, return generic conflict error
+        return build_error_response(409, "uniqueness", "User already exists")
 
 
 @scim_bp.route("/Users/<scim_id>", methods=["PUT"])
@@ -682,35 +669,29 @@ def create_group():
     if "name" not in group_data:
         return build_error_response(400, "invalidValue", "displayName required")
     
-    # SCIM Best Practice: Idempotent creation - check if group already exists
+    # SCIM 2.0 RFC 7644: POST is NOT idempotent - always return 409 Conflict if resource exists
+    # Check for existing group by externalId (if provided) or name
     existing_group = None
     
+    # Check by externalId first (if provided)
     if "external_id" in group_data and group_data["external_id"]:
         existing_group = Group.query.filter_by(external_id=group_data["external_id"]).first()
+        if existing_group:
+            return build_error_response(
+                409,
+                "uniqueness",
+                f"Group with externalId '{group_data['external_id']}' already exists.",
+            )
     
-    if not existing_group:
-        existing_group = Group.query.filter_by(name=group_data["name"]).first()
-    
-    # If group exists, return existing group with its SCIM ID
+    # Check by name
+    existing_group = Group.query.filter_by(name=group_data["name"]).first()
     if existing_group:
-        # Update external_id if provided and not already set
-        if "external_id" in group_data and group_data["external_id"] and not existing_group.external_id:
-            existing_group.external_id = group_data["external_id"]
-            from ..model.base import db
-            db.session.commit()
-        
-        # Ensure scim_id is set
-        if not existing_group.scim_id:
-            existing_group.scim_id = generate_scim_id(existing_group.id)
-            from ..model.base import db
-            db.session.commit()
-        
-        resource = GroupSCIMSerializer.to_scim(existing_group)
-        response = flask.jsonify(resource)
-        response.status_code = 200  # Existing resource
-        response.headers["Content-Type"] = "application/scim+json"
-        response.headers["Location"] = resource["meta"]["location"]
-        return response
+        return build_error_response(
+            409,
+            "uniqueness",
+            f"Group with name '{group_data['name']}' already exists. "
+            "Search for the group first, then use PATCH to update externalId to link it.",
+        )
     
     # Group doesn't exist, create new one
     try:
@@ -774,7 +755,17 @@ def create_group():
         return response
         
     except sqlalchemy.exc.IntegrityError:
-        return build_error_response(409, "uniqueness", "Group with name already exists")
+        # Race condition: group was created between our check and creation
+        # Return 409 Conflict per SCIM spec (POST is not idempotent)
+        existing_group = Group.query.filter_by(name=group_data["name"]).first()
+        if existing_group:
+            return build_error_response(
+                409,
+                "uniqueness",
+                f"Group with name '{group_data['name']}' already exists.",
+            )
+        # If still not found, return generic conflict error
+        return build_error_response(409, "uniqueness", "Group already exists")
 
 
 @scim_bp.route("/Groups/<scim_id>", methods=["PUT"])
@@ -1138,35 +1129,29 @@ def create_dataset():
     if "name" not in dataset_data:
         return build_error_response(400, "invalidValue", "name required")
     
-    # SCIM Best Practice: Idempotent creation - check if dataset already exists
+    # SCIM 2.0 RFC 7644: POST is NOT idempotent - always return 409 Conflict if resource exists
+    # Check for existing dataset by externalId (if provided) or name
     existing_dataset = None
     
+    # Check by externalId first (if provided)
     if "external_id" in dataset_data and dataset_data["external_id"]:
         existing_dataset = Dataset.query.filter_by(external_id=dataset_data["external_id"]).first()
+        if existing_dataset:
+            return build_error_response(
+                409,
+                "uniqueness",
+                f"Dataset with externalId '{dataset_data['external_id']}' already exists.",
+            )
     
-    if not existing_dataset:
-        existing_dataset = Dataset.query.filter_by(name=dataset_data["name"]).first()
-    
-    # If dataset exists, return existing dataset with its SCIM ID
+    # Check by name
+    existing_dataset = Dataset.query.filter_by(name=dataset_data["name"]).first()
     if existing_dataset:
-        # Update external_id if provided and not already set
-        if "external_id" in dataset_data and dataset_data["external_id"] and not existing_dataset.external_id:
-            existing_dataset.external_id = dataset_data["external_id"]
-            from ..model.base import db
-            db.session.commit()
-        
-        # Ensure scim_id is set
-        if not existing_dataset.scim_id:
-            existing_dataset.scim_id = generate_scim_id(existing_dataset.id)
-            from ..model.base import db
-            db.session.commit()
-        
-        resource = DatasetSCIMSerializer.to_scim(existing_dataset)
-        response = flask.jsonify(resource)
-        response.status_code = 200  # Existing resource
-        response.headers["Content-Type"] = "application/scim+json"
-        response.headers["Location"] = resource["meta"]["location"]
-        return response
+        return build_error_response(
+            409,
+            "uniqueness",
+            f"Dataset with name '{dataset_data['name']}' already exists. "
+            "Search for the dataset first, then use PATCH to update externalId to link it.",
+        )
     
     # Dataset doesn't exist, create new one
     try:
@@ -1194,7 +1179,17 @@ def create_dataset():
         return response
         
     except sqlalchemy.exc.IntegrityError:
-        return build_error_response(409, "uniqueness", "Dataset with name already exists")
+        # Race condition: dataset was created between our check and creation
+        # Return 409 Conflict per SCIM spec (POST is not idempotent)
+        existing_dataset = Dataset.query.filter_by(name=dataset_data["name"]).first()
+        if existing_dataset:
+            return build_error_response(
+                409,
+                "uniqueness",
+                f"Dataset with name '{dataset_data['name']}' already exists.",
+            )
+        # If still not found, return generic conflict error
+        return build_error_response(409, "uniqueness", "Dataset already exists")
     except ValueError as e:
         return build_error_response(400, "invalidValue", str(e))
 
