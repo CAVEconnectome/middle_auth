@@ -202,7 +202,7 @@ def get_base_url() -> str:
     Get base URL for SCIM endpoints (for meta.location).
     
     Returns:
-        Base URL string
+        Base URL string (e.g., http://host:port/{URL_PREFIX}/scim)
     """
     import os
     
@@ -210,8 +210,12 @@ def get_base_url() -> str:
     if base_url:
         return base_url.rstrip("/")
     
-    # Fallback to request URL
-    return flask.request.url_root.rstrip("/")
+    # Fallback: construct from request URL + URL_PREFIX + blueprint prefix
+    # The blueprint prefix is /{URL_PREFIX}/scim/v2, but we need base_url without /v2
+    # since location URLs are built as {base_url}/v2/Users/{id}
+    url_prefix = os.environ.get("URL_PREFIX", "auth")
+    request_root = flask.request.url_root.rstrip("/")
+    return f"{request_root}/{url_prefix}/scim"
 
 
 def create_user_with_scim(**kwargs):
