@@ -1204,6 +1204,15 @@ def delete_group(scim_id):
     from ..model.user_group import UserGroup
     from ..model.group_dataset_permission import GroupDatasetPermission
     from ..model.base import db
+    from ..model.user import User
+    
+    # Get all affected user IDs BEFORE deleting memberships
+    # This is critical: we need the user list before bulk delete, since
+    # group.update_cache() queries UserGroup.get_users() which would return
+    # nothing after deletion. Individual UserGroup.delete() calls update_cache(),
+    # but bulk query.delete() bypasses that.
+    affected_users = UserGroup.get_users(group.id)
+    affected_user_ids = [user.id for user in affected_users]
     
     # Remove all UserGroup memberships
     UserGroup.query.filter_by(group_id=group.id).delete()
@@ -1214,6 +1223,12 @@ def delete_group(scim_id):
     # Now safe to delete the group
     db.session.delete(group)
     db.session.commit()
+    
+    # Update cache for all affected users (they lost group membership and permissions)
+    for user_id in affected_user_ids:
+        user = User.get_by_id(user_id)
+        if user:
+            user.update_cache()
     
     return flask.Response(status=204)
 
