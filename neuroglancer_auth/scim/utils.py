@@ -13,26 +13,28 @@ import flask
 SCIM_NAMESPACE = uuid.UUID("6ba7b810-9dad-11d1-80b4-00c04fd430c8")
 
 
-def generate_scim_id(internal_id: int) -> str:
+def generate_scim_id(internal_id: int, resource_type: str) -> str:
     """
     Convert internal integer ID to SCIM-compliant UUID string.
     
-    Uses UUID5 for deterministic mapping (same internal ID always maps to same UUID).
+    Uses UUID5 for deterministic mapping (same internal ID + resource type always maps to same UUID).
+    Incorporates resource_type to ensure uniqueness across all resource types per RFC 7643 §3.1.
     
     Args:
         internal_id: Internal integer ID
+        resource_type: Resource type (e.g., "User", "Group", "Dataset")
         
     Returns:
         UUID string in SCIM format
     """
-    return str(uuid.uuid5(SCIM_NAMESPACE, str(internal_id)))
+    return str(uuid.uuid5(SCIM_NAMESPACE, f"{resource_type}:{internal_id}"))
 
 
 def find_user_by_scim_identifier(scim_id: str = None, external_id: str = None):
     """
     Find User by SCIM identifier (scim_id or external_id).
     
-    Priority: external_id (if provided) > scim_id (if provided) > generate from scim_id
+    Priority: external_id (if provided) > scim_id (if provided)
     
     Args:
         scim_id: SCIM UUID string
@@ -54,17 +56,6 @@ def find_user_by_scim_identifier(scim_id: str = None, external_id: str = None):
         user = User.query.filter_by(scim_id=scim_id).first()
         if user:
             return user
-        
-        # Fallback: Generate scim_id and find by internal ID (backward compatibility)
-        # This handles cases where scim_id wasn't stored yet
-        users = User.query.filter(User.parent_id.is_(None)).all()
-        for u in users:
-            if generate_scim_id(u.id) == scim_id:
-                # Store scim_id for future lookups
-                u.scim_id = scim_id
-                from ..model.base import db
-                db.session.commit()
-                return u
     
     return None
 
@@ -82,15 +73,6 @@ def find_group_by_scim_identifier(scim_id: str = None, external_id: str = None):
         group = Group.query.filter_by(scim_id=scim_id).first()
         if group:
             return group
-        
-        # Fallback: Generate and find
-        groups = Group.query.all()
-        for g in groups:
-            if generate_scim_id(g.id) == scim_id:
-                g.scim_id = scim_id
-                from ..model.base import db
-                db.session.commit()
-                return g
     
     return None
 
@@ -108,15 +90,6 @@ def find_dataset_by_scim_identifier(scim_id: str = None, external_id: str = None
         dataset = Dataset.query.filter_by(scim_id=scim_id).first()
         if dataset:
             return dataset
-        
-        # Fallback: Generate and find
-        datasets = Dataset.query.all()
-        for d in datasets:
-            if generate_scim_id(d.id) == scim_id:
-                d.scim_id = scim_id
-                from ..model.base import db
-                db.session.commit()
-                return d
     
     return None
 
@@ -263,7 +236,7 @@ def create_user_with_scim(**kwargs):
     user = User.create_account(**kwargs, external_id=external_id)
     
     # Set scim_id after user is created (needs actual user.id)
-    user.scim_id = generate_scim_id(user.id)
+    user.scim_id = generate_scim_id(user.id, "User")
     db.session.commit()
     
     return user
@@ -290,7 +263,7 @@ def create_group_with_scim(**kwargs):
     group = Group.add(**kwargs, external_id=external_id, scim_id=scim_id)
     
     # Set scim_id after group is created
-    group.scim_id = generate_scim_id(group.id)
+    group.scim_id = generate_scim_id(group.id, "Group")
     db.session.commit()
     
     return group
@@ -317,7 +290,7 @@ def create_dataset_with_scim(**kwargs):
     dataset = Dataset.add(**kwargs, external_id=external_id, scim_id=scim_id)
     
     # Set scim_id after dataset is created
-    dataset.scim_id = generate_scim_id(dataset.id)
+    dataset.scim_id = generate_scim_id(dataset.id, "Dataset")
     db.session.commit()
     
     return dataset

@@ -32,7 +32,7 @@ class UserSCIMSerializer:
         """
         base_url = get_base_url()
         # Use stored scim_id if available, otherwise generate
-        scim_id = user.scim_id or generate_scim_id(user.id)
+        scim_id = user.scim_id or generate_scim_id(user.id, "User")
         
         # Store scim_id if not already stored
         if not user.scim_id:
@@ -87,8 +87,8 @@ class UserSCIMSerializer:
         groups = user.get_groups()
         resource["groups"] = [
             {
-                "value": generate_scim_id(group["id"]),
-                "$ref": f"{base_url}/v2/Groups/{generate_scim_id(group['id'])}",
+                "value": generate_scim_id(group["id"], "Group"),
+                "$ref": f"{base_url}/v2/Groups/{generate_scim_id(group['id'], 'Group')}",
                 "display": group["name"],
             }
             for group in groups
@@ -182,7 +182,7 @@ class GroupSCIMSerializer:
         """
         base_url = get_base_url()
         # Use stored scim_id if available, otherwise generate
-        scim_id = group.scim_id or generate_scim_id(group.id)
+        scim_id = group.scim_id or generate_scim_id(group.id, "Group")
         
         # Store scim_id if not already stored
         if not group.scim_id:
@@ -211,8 +211,8 @@ class GroupSCIMSerializer:
             members = UserGroup.get_member_list(group.id)
             resource["members"] = [
                 {
-                    "value": generate_scim_id(member["id"]),
-                    "$ref": f"{base_url}/v2/Users/{generate_scim_id(member['id'])}",
+                    "value": generate_scim_id(member["id"], "User"),
+                    "$ref": f"{base_url}/v2/Users/{generate_scim_id(member['id'], 'User')}",
                     "display": member["name"],
                 }
                 for member in members
@@ -228,7 +228,7 @@ class GroupSCIMSerializer:
                 dataset_id = perm["id"]
                 if dataset_id not in dataset_perms:
                     dataset_perms[dataset_id] = {
-                        "datasetId": generate_scim_id(dataset_id),
+                        "datasetId": generate_scim_id(dataset_id, "Dataset"),
                         "datasetName": perm["name"],
                         "permissions": [],
                     }
@@ -283,7 +283,7 @@ class DatasetSCIMSerializer:
         """
         base_url = get_base_url()
         # Use stored scim_id if available, otherwise generate
-        scim_id = dataset.scim_id or generate_scim_id(dataset.id)
+        scim_id = dataset.scim_id or generate_scim_id(dataset.id, "Dataset")
         
         # Store scim_id if not already stored
         if not dataset.scim_id:
