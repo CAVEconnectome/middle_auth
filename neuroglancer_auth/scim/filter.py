@@ -10,19 +10,59 @@ from typing import Any, Dict, Optional
 from sqlalchemy import and_, or_, not_
 from sqlalchemy.orm import Query
 
-from scim2_filter_parser.parser import Parser as SCIMParser
+import logging
+import threading
+
+try:
+    from scim2_filter_parser.parser import Parser as SCIMParser
+    SCIM_PARSER_AVAILABLE = True
+except ImportError:
+    SCIMParser = None
+    SCIM_PARSER_AVAILABLE = False
+    logging.getLogger(__name__).warning(
+        "scim2-filter-parser not found. SCIM filtering will be disabled.",
+        exc_info=True
+    )
 
 
 # Create a module-level parser instance (singleton pattern)
 # SLY parsers need to be instantiated once and reused
+# Use a lock to ensure thread-safe initialization
 _parser_instance = None
+_parser_lock = threading.Lock()
 
 
 def _get_parser():
-    """Get or create the parser instance."""
+    """Get or create the parser instance (thread-safe)."""
     global _parser_instance
+    if not SCIM_PARSER_AVAILABLE:
+        raise SCIMFilterError("SCIM filter parser library is not available.")
+    
+    # Double-checked locking pattern for thread safety
     if _parser_instance is None:
-        _parser_instance = SCIMParser()
+        with _parser_lock:
+            if _parser_instance is None:
+                _parser_instance = SCIMParser()
+                # Force SLY to build its internal tables by parsing a valid filter
+                # This ensures _lrtable and other attributes are initialized
+                # We use a simple valid filter to trigger table building
+                logger = logging.getLogger(__name__)
+                try:
+                    # Parse a simple valid filter to initialize SLY's internal tables
+                    # This must succeed for the parser to be usable
+                    _parser_instance.parse('id eq "init"')
+                    # Verify that the parser has the required attributes
+                    if not hasattr(_parser_instance, '_lrtable'):
+                        raise RuntimeError("Parser initialization failed: _lrtable attribute not found")
+                except Exception as e:
+                    # If initialization fails, log the error and raise
+                    # The parser cannot be used without proper initialization
+                    logger.error(
+                        f"Parser initialization failed: {e}. SCIM filtering will not work.",
+                        exc_info=True
+                    )
+                    _parser_instance = None  # Reset so we can try again
+                    raise SCIMFilterError(f"Failed to initialize SCIM parser: {e}") from e
     return _parser_instance
 
 
