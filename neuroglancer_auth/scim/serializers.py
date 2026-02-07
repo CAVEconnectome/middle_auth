@@ -31,14 +31,14 @@ class UserSCIMSerializer:
             SCIM User resource dictionary
         """
         base_url = get_base_url()
-        # Use stored scim_id if available, otherwise generate
-        scim_id = user.scim_id or generate_scim_id(user.id, "User")
-        
-        # Store scim_id if not already stored
+        # scim_id should always be set (auto-generated on creation or by migration)
+        # Fallback to generation if somehow missing (safety check)
         if not user.scim_id:
-            user.scim_id = scim_id
+            user.scim_id = generate_scim_id(user.id, "User")
             from ..model.base import db
             db.session.commit()
+        
+        scim_id = user.scim_id
         
         # Parse name (simple approach: use full name as givenName)
         # In production, you might want to store givenName/familyName separately
@@ -181,14 +181,14 @@ class GroupSCIMSerializer:
             SCIM Group resource dictionary
         """
         base_url = get_base_url()
-        # Use stored scim_id if available, otherwise generate
-        scim_id = group.scim_id or generate_scim_id(group.id, "Group")
-        
-        # Store scim_id if not already stored
+        # scim_id should always be set (auto-generated on creation or by migration)
+        # Fallback to generation if somehow missing (safety check)
         if not group.scim_id:
-            group.scim_id = scim_id
+            group.scim_id = generate_scim_id(group.id, "Group")
             from ..model.base import db
             db.session.commit()
+        
+        scim_id = group.scim_id
         
         resource = {
             "schemas": [GroupSCIMSerializer.GROUP_SCHEMA],
@@ -282,14 +282,11 @@ class DatasetSCIMSerializer:
             SCIM Dataset resource dictionary
         """
         base_url = get_base_url()
-        # Use stored scim_id if available, otherwise generate
-        scim_id = dataset.scim_id or generate_scim_id(dataset.id, "Dataset")
+        # scim_id should always be set (auto-generated on creation or by migration)
+        # Fallback to generation if somehow missing (safety check)
+
         
-        # Store scim_id if not already stored
-        if not dataset.scim_id:
-            dataset.scim_id = scim_id
-            from ..model.base import db
-            db.session.commit()
+        scim_id = dataset.scim_id
         
         # Get ServiceTable mappings
         service_tables = ServiceTable.query.filter_by(dataset_id=dataset.id).all()

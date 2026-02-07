@@ -32,6 +32,13 @@ class Group(db.Model):
     def add(name, scim_id=None, external_id=None):
         group = Group(name=name, scim_id=scim_id, external_id=external_id)
         db.session.add(group)
+        db.session.flush()  # get inserted id
+        
+        # Auto-generate scim_id if not provided
+        if not group.scim_id:
+            from ..scim.utils import generate_scim_id
+            group.scim_id = generate_scim_id(group.id, "Group")
+        
         db.session.commit()
         return group
 

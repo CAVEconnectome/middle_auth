@@ -34,7 +34,14 @@ class Dataset(db.Model):
     def add(name, tos_id, scim_id=None, external_id=None):
         dataset = Dataset(name=name, tos_id=tos_id, scim_id=scim_id, external_id=external_id)
         db.session.add(dataset)
-        db.session.commit()
+        db.session.flush()  # get inserted id
+        
+        # Auto-generate sci_id if not provided
+        if not dataset.scim_id:
+            from ..scim.utils import generate_scim_id
+            dataset.scim_id = generate_scim_id(dataset.id, "Dataset")
+        
+        db.session.commit()m
         return dataset
 
     def update_cache(self):

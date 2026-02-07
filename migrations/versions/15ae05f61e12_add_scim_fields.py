@@ -17,27 +17,17 @@ depends_on = None
 
 
 def upgrade():
-    # Add SCIM fields to user table
+    # Add SCIM fields to user table (nullable initially)
     op.add_column("user", sa.Column("scim_id", sa.String(length=36), nullable=True))
     op.add_column("user", sa.Column("external_id", sa.String(length=255), nullable=True))
-    op.create_index("ix_user_scim_id", "user", ["scim_id"], unique=True)
-    op.create_index("ix_user_external_id", "user", ["external_id"])
-
-    # Add SCIM fields to group table
+    
+    # Add SCIM fields to group table (nullable initially)
     op.add_column("group", sa.Column("scim_id", sa.String(length=36), nullable=True))
     op.add_column("group", sa.Column("external_id", sa.String(length=255), nullable=True))
-    op.create_index("ix_group_scim_id", "group", ["scim_id"], unique=True)
-    op.create_index("ix_group_external_id", "group", ["external_id"])
-
-    # Add SCIM fields to dataset table
+    
+    # Add SCIM fields to dataset table (nullable initially)
     op.add_column("dataset", sa.Column("scim_id", sa.String(length=36), nullable=True))
     op.add_column("dataset", sa.Column("external_id", sa.String(length=255), nullable=True))
-    op.create_index("ix_dataset_scim_id", "dataset", ["scim_id"], unique=True)
-    op.create_index("ix_dataset_external_id", "dataset", ["external_id"])
-
-    # Populate scim_id for existing records using deterministic UUID5
-    # This is done in Python code after migration runs
-    # See: neuroglancer_auth/scim/utils.py generate_scim_id()
 
 
 def downgrade():

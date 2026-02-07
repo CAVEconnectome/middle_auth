@@ -163,6 +163,11 @@ class User(db.Model):
         )
         db.session.add(user)
         db.session.flush()  # get inserted id
+        
+        # Auto-generate scim_id if not provided
+        if not user.scim_id:
+            from ..scim.utils import generate_scim_id
+            user.scim_id = generate_scim_id(user.id, "User")
 
         groups = Group.query.filter(Group.name.in_(group_names)).all()
 

@@ -56,7 +56,7 @@ def find_user_by_scim_identifier(scim_id: str = None, external_id: str = None):
         if user:
             return user
     
-    # Priority 2: Lookup by scim_id if provided and stored
+    # Priority 2: Lookup by scim_id if provided
     if scim_id:
         user = User.query.filter_by(scim_id=scim_id).first()
         if user:
@@ -66,7 +66,16 @@ def find_user_by_scim_identifier(scim_id: str = None, external_id: str = None):
 
 
 def find_group_by_scim_identifier(scim_id: str = None, external_id: str = None):
-    """Find Group by SCIM identifier."""
+    """
+    Find Group by SCIM identifier.
+    
+    Args:
+        scim_id: SCIM UUID string
+        external_id: External system identifier
+        
+    Returns:
+        Group model instance or None
+    """
     from ..model.group import Group
     
     if external_id:
