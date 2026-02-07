@@ -13,37 +13,35 @@ from sqlalchemy.orm import Query
 import logging
 import threading
 
-try:
-    from scim2_filter_parser.parser import Parser as SCIMParser
-    SCIM_PARSER_AVAILABLE = True
-except ImportError:
-    SCIMParser = None
-    SCIM_PARSER_AVAILABLE = False
-    logging.getLogger(__name__).warning(
-        "scim2-filter-parser not found. SCIM filtering will be disabled.",
-        exc_info=True
-    )
+from scim2_filter_parser.lexer import SCIMLexer
+from scim2_filter_parser.parser import SCIMParser
 
 
-# Create a module-level parser instance (singleton pattern)
+# Create module-level lexer and parser instances (singleton pattern)
 # SLY parsers need to be instantiated once and reused
 # Use a lock to ensure thread-safe initialization
+_lexer_instance = None
 _parser_instance = None
 _parser_lock = threading.Lock()
+
+
+def _get_lexer():
+    """Get or create the lexer instance (thread-safe)."""
+    global _lexer_instance
+    if _lexer_instance is None:
+        with _parser_lock:
+            if _lexer_instance is None:
+                _lexer_instance = SCIMLexer()
+    return _lexer_instance
 
 
 def _get_parser():
     """Get or create the parser instance (thread-safe)."""
     global _parser_instance
-    if not SCIM_PARSER_AVAILABLE:
-        raise SCIMFilterError("SCIM filter parser library is not available.")
-    
     # Double-checked locking pattern for thread safety
     if _parser_instance is None:
         with _parser_lock:
             if _parser_instance is None:
-                # Create parser instance - SLY will build tables on first parse
-                # We don't parse here because that requires _lrtable which isn't built yet
                 _parser_instance = SCIMParser()
     return _parser_instance
 
@@ -184,31 +182,11 @@ class SCIMFilterParser:
         }
         
         try:
+            # Use lexer to tokenize the filter expression first, then parse the token stream
+            lexer = _get_lexer()
             parser = _get_parser()
-            # SLY parsers build their tables on first parse, but first parse needs the tables
-            # This creates a circular dependency. We handle it by catching AttributeError
-            # and retrying, which should trigger table building
-            try:
-                ast = parser.parse(filter_expr)
-            except AttributeError as ae:
-                if '_lrtable' in str(ae):
-                    # Parser tables not built yet - create a fresh parser instance
-                    # The class-level tables should be built now, so new instance should work
-                    logger = logging.getLogger(__name__)
-                    logger.debug("Parser tables not initialized, creating fresh parser instance...")
-                    # Create a new parser instance - SLY should have built class-level tables
-                    # from the first failed parse attempt
-                    global _parser_instance
-                    with _parser_lock:
-                        _parser_instance = SCIMParser()
-                    parser = _parser_instance
-                    # Retry parse with fresh instance
-                    ast = parser.parse(filter_expr)
-                else:
-                    raise
-            except Exception:
-                # Re-raise other exceptions as-is
-                raise
+            token_stream = lexer.tokenize(filter_expr)
+            ast = parser.parse(token_stream)
             
             condition = SCIMFilterParser._ast_to_sqlalchemy(ast, attr_map, query)
             if condition is not None:
@@ -247,31 +225,11 @@ class SCIMFilterParser:
         }
         
         try:
+            # Use lexer to tokenize the filter expression first, then parse the token stream
+            lexer = _get_lexer()
             parser = _get_parser()
-            # SLY parsers build their tables on first parse, but first parse needs the tables
-            # This creates a circular dependency. We handle it by catching AttributeError
-            # and retrying, which should trigger table building
-            try:
-                ast = parser.parse(filter_expr)
-            except AttributeError as ae:
-                if '_lrtable' in str(ae):
-                    # Parser tables not built yet - create a fresh parser instance
-                    # The class-level tables should be built now, so new instance should work
-                    logger = logging.getLogger(__name__)
-                    logger.debug("Parser tables not initialized, creating fresh parser instance...")
-                    # Create a new parser instance - SLY should have built class-level tables
-                    # from the first failed parse attempt
-                    global _parser_instance
-                    with _parser_lock:
-                        _parser_instance = SCIMParser()
-                    parser = _parser_instance
-                    # Retry parse with fresh instance
-                    ast = parser.parse(filter_expr)
-                else:
-                    raise
-            except Exception:
-                # Re-raise other exceptions as-is
-                raise
+            token_stream = lexer.tokenize(filter_expr)
+            ast = parser.parse(token_stream)
             
             condition = SCIMFilterParser._ast_to_sqlalchemy(ast, attr_map, query)
             if condition is not None:
@@ -310,31 +268,11 @@ class SCIMFilterParser:
         }
         
         try:
+            # Use lexer to tokenize the filter expression first, then parse the token stream
+            lexer = _get_lexer()
             parser = _get_parser()
-            # SLY parsers build their tables on first parse, but first parse needs the tables
-            # This creates a circular dependency. We handle it by catching AttributeError
-            # and retrying, which should trigger table building
-            try:
-                ast = parser.parse(filter_expr)
-            except AttributeError as ae:
-                if '_lrtable' in str(ae):
-                    # Parser tables not built yet - create a fresh parser instance
-                    # The class-level tables should be built now, so new instance should work
-                    logger = logging.getLogger(__name__)
-                    logger.debug("Parser tables not initialized, creating fresh parser instance...")
-                    # Create a new parser instance - SLY should have built class-level tables
-                    # from the first failed parse attempt
-                    global _parser_instance
-                    with _parser_lock:
-                        _parser_instance = SCIMParser()
-                    parser = _parser_instance
-                    # Retry parse with fresh instance
-                    ast = parser.parse(filter_expr)
-                else:
-                    raise
-            except Exception:
-                # Re-raise other exceptions as-is
-                raise
+            token_stream = lexer.tokenize(filter_expr)
+            ast = parser.parse(token_stream)
             
             condition = SCIMFilterParser._ast_to_sqlalchemy(ast, attr_map, query)
             if condition is not None:
