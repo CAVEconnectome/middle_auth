@@ -101,12 +101,14 @@ class SCIMFilterParser:
             attr_path_obj = expr.attr_path
             
             # Try multiple ways to extract the attribute path string
-            if isinstance(attr_path_obj, str):
+            if hasattr(attr_path_obj, 'attr_name'):
+                attr_name = attr_path_obj.attr_named
+            elif isinstance(attr_path_obj, str):
                 attr_name = attr_path_obj
             elif hasattr(attr_path_obj, 'value'):
                 attr_name = attr_path_obj.value
             else:
-                raise ValueError(f"Invalid attribute path: {attr_path_obj}")
+                raise ValueError(f"Invalid attribute path: {attr_path_obj} dir: {dir(attr_path_obj)}")
                 
             
             # Operator is already a string (e.g., 'eq', 'ne', 'co')
