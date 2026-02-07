@@ -42,27 +42,9 @@ def _get_parser():
     if _parser_instance is None:
         with _parser_lock:
             if _parser_instance is None:
+                # Create parser instance - SLY will build tables on first parse
+                # We don't parse here because that requires _lrtable which isn't built yet
                 _parser_instance = SCIMParser()
-                # Force SLY to build its internal tables by parsing a valid filter
-                # This ensures _lrtable and other attributes are initialized
-                # We use a simple valid filter to trigger table building
-                logger = logging.getLogger(__name__)
-                try:
-                    # Parse a simple valid filter to initialize SLY's internal tables
-                    # This must succeed for the parser to be usable
-                    _parser_instance.parse('id eq "init"')
-                    # Verify that the parser has the required attributes
-                    if not hasattr(_parser_instance, '_lrtable'):
-                        raise RuntimeError("Parser initialization failed: _lrtable attribute not found")
-                except Exception as e:
-                    # If initialization fails, log the error and raise
-                    # The parser cannot be used without proper initialization
-                    logger.error(
-                        f"Parser initialization failed: {e}. SCIM filtering will not work.",
-                        exc_info=True
-                    )
-                    _parser_instance = None  # Reset so we can try again
-                    raise SCIMFilterError(f"Failed to initialize SCIM parser: {e}") from e
     return _parser_instance
 
 
@@ -203,14 +185,36 @@ class SCIMFilterParser:
         
         try:
             parser = _get_parser()
-            ast = parser.parse(filter_expr)
+            # SLY parsers build their tables on first parse, but first parse needs the tables
+            # This creates a circular dependency. We handle it by catching AttributeError
+            # and retrying, which should trigger table building
+            try:
+                ast = parser.parse(filter_expr)
+            except AttributeError as ae:
+                if '_lrtable' in str(ae):
+                    # Parser tables not built yet - create a fresh parser instance
+                    # The class-level tables should be built now, so new instance should work
+                    logger = logging.getLogger(__name__)
+                    logger.debug("Parser tables not initialized, creating fresh parser instance...")
+                    # Create a new parser instance - SLY should have built class-level tables
+                    # from the first failed parse attempt
+                    global _parser_instance
+                    with _parser_lock:
+                        _parser_instance = SCIMParser()
+                    parser = _parser_instance
+                    # Retry parse with fresh instance
+                    ast = parser.parse(filter_expr)
+                else:
+                    raise
+            except Exception:
+                # Re-raise other exceptions as-is
+                raise
             
             condition = SCIMFilterParser._ast_to_sqlalchemy(ast, attr_map, query)
             if condition is not None:
                 query = query.filter(condition)
         except Exception as e:
             # Re-raise as SCIMFilterError with details
-            import logging
             logger = logging.getLogger(__name__)
             logger.warning(f"Invalid SCIM filter expression: {filter_expr}, error: {str(e)}", exc_info=True)
             raise SCIMFilterError(f"Invalid filter expression: {str(e)}") from e
@@ -244,13 +248,35 @@ class SCIMFilterParser:
         
         try:
             parser = _get_parser()
-            ast = parser.parse(filter_expr)
+            # SLY parsers build their tables on first parse, but first parse needs the tables
+            # This creates a circular dependency. We handle it by catching AttributeError
+            # and retrying, which should trigger table building
+            try:
+                ast = parser.parse(filter_expr)
+            except AttributeError as ae:
+                if '_lrtable' in str(ae):
+                    # Parser tables not built yet - create a fresh parser instance
+                    # The class-level tables should be built now, so new instance should work
+                    logger = logging.getLogger(__name__)
+                    logger.debug("Parser tables not initialized, creating fresh parser instance...")
+                    # Create a new parser instance - SLY should have built class-level tables
+                    # from the first failed parse attempt
+                    global _parser_instance
+                    with _parser_lock:
+                        _parser_instance = SCIMParser()
+                    parser = _parser_instance
+                    # Retry parse with fresh instance
+                    ast = parser.parse(filter_expr)
+                else:
+                    raise
+            except Exception:
+                # Re-raise other exceptions as-is
+                raise
             
             condition = SCIMFilterParser._ast_to_sqlalchemy(ast, attr_map, query)
             if condition is not None:
                 query = query.filter(condition)
         except Exception as e:
-            import logging
             logger = logging.getLogger(__name__)
             logger.warning(f"Invalid SCIM filter expression: {filter_expr}, error: {str(e)}", exc_info=True)
             raise SCIMFilterError(f"Invalid filter expression: {str(e)}") from e
@@ -285,13 +311,35 @@ class SCIMFilterParser:
         
         try:
             parser = _get_parser()
-            ast = parser.parse(filter_expr)
+            # SLY parsers build their tables on first parse, but first parse needs the tables
+            # This creates a circular dependency. We handle it by catching AttributeError
+            # and retrying, which should trigger table building
+            try:
+                ast = parser.parse(filter_expr)
+            except AttributeError as ae:
+                if '_lrtable' in str(ae):
+                    # Parser tables not built yet - create a fresh parser instance
+                    # The class-level tables should be built now, so new instance should work
+                    logger = logging.getLogger(__name__)
+                    logger.debug("Parser tables not initialized, creating fresh parser instance...")
+                    # Create a new parser instance - SLY should have built class-level tables
+                    # from the first failed parse attempt
+                    global _parser_instance
+                    with _parser_lock:
+                        _parser_instance = SCIMParser()
+                    parser = _parser_instance
+                    # Retry parse with fresh instance
+                    ast = parser.parse(filter_expr)
+                else:
+                    raise
+            except Exception:
+                # Re-raise other exceptions as-is
+                raise
             
             condition = SCIMFilterParser._ast_to_sqlalchemy(ast, attr_map, query)
             if condition is not None:
                 query = query.filter(condition)
         except Exception as e:
-            import logging
             logger = logging.getLogger(__name__)
             logger.warning(f"Invalid SCIM filter expression: {filter_expr}, error: {str(e)}", exc_info=True)
             raise SCIMFilterError(f"Invalid filter expression: {str(e)}") from e
