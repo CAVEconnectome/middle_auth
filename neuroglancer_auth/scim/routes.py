@@ -705,7 +705,14 @@ def list_groups():
     
     # Apply filter
     if filter_expr:
-        query = SCIMFilterParser.apply_group_filter(query, filter_expr)
+        try:
+            query = SCIMFilterParser.apply_group_filter(query, filter_expr)
+        except SCIMFilterError as e:
+            return build_error_response(
+                400,
+                "invalidFilter",
+                f"Invalid filter expression: {str(e)}"
+            )
     
     # Get total count
     total_results = query.count()
@@ -1269,7 +1276,14 @@ def list_datasets():
     
     # Apply filter
     if filter_expr:
-        query = SCIMFilterParser.apply_dataset_filter(query, filter_expr)
+        try:
+            query = SCIMFilterParser.apply_dataset_filter(query, filter_expr)
+        except SCIMFilterError as e:
+            return build_error_response(
+                400,
+                "invalidFilter",
+                f"Invalid filter expression: {str(e)}"
+            )
     
     # Get total count
     total_results = query.count()

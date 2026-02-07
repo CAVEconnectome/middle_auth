@@ -13,6 +13,23 @@ from sqlalchemy.orm import Query
 from scim2_filter_parser.parser import Parser as SCIMParser
 
 
+# Create a module-level parser instance (singleton pattern)
+# SLY parsers need to be instantiated once and reused
+_parser_instance = None
+
+
+def _get_parser():
+    """Get or create the parser instance."""
+    global _parser_instance
+    if _parser_instance is None:
+        _parser_instance = SCIMParser()
+    return _parser_instance
+
+
+class SCIMFilterError(Exception):
+    """Exception for invalid SCIM filter expressions."""
+    pass
+
 
 class SCIMFilterParser:
     """Parser for SCIM filter expressions using scim2-filter-parser."""
@@ -125,6 +142,9 @@ class SCIMFilterParser:
             
         Returns:
             Modified query
+            
+        Raises:
+            SCIMFilterError: If filter expression is invalid
         """
         if not filter_expr or not filter_expr.strip():
             return query
@@ -142,19 +162,18 @@ class SCIMFilterParser:
         }
         
         try:
-            parser = SCIMParser()
+            parser = _get_parser()
             ast = parser.parse(filter_expr)
             
             condition = SCIMFilterParser._ast_to_sqlalchemy(ast, attr_map, query)
             if condition is not None:
                 query = query.filter(condition)
         except Exception as e:
-            # Invalid filter - return query as-is (or could raise error)
-            # Log the error for debugging
+            # Re-raise as SCIMFilterError with details
             import logging
             logger = logging.getLogger(__name__)
             logger.warning(f"Invalid SCIM filter expression: {filter_expr}, error: {str(e)}", exc_info=True)
-            pass
+            raise SCIMFilterError(f"Invalid filter expression: {str(e)}") from e
 
         return query
     
@@ -169,6 +188,9 @@ class SCIMFilterParser:
             
         Returns:
             Modified query
+            
+        Raises:
+            SCIMFilterError: If filter expression is invalid
         """
         if not filter_expr or not filter_expr.strip():
             return query
@@ -181,18 +203,17 @@ class SCIMFilterParser:
         }
         
         try:
-            parser = SCIMParser()
+            parser = _get_parser()
             ast = parser.parse(filter_expr)
             
             condition = SCIMFilterParser._ast_to_sqlalchemy(ast, attr_map, query)
             if condition is not None:
                 query = query.filter(condition)
         except Exception as e:
-            # Invalid filter - return query as-is
             import logging
             logger = logging.getLogger(__name__)
             logger.warning(f"Invalid SCIM filter expression: {filter_expr}, error: {str(e)}", exc_info=True)
-            pass
+            raise SCIMFilterError(f"Invalid filter expression: {str(e)}") from e
         
         return query
     
@@ -207,6 +228,9 @@ class SCIMFilterParser:
             
         Returns:
             Modified query
+            
+        Raises:
+            SCIMFilterError: If filter expression is invalid
         """
         if not filter_expr or not filter_expr.strip():
             return query
@@ -220,17 +244,16 @@ class SCIMFilterParser:
         }
         
         try:
-            parser = SCIMParser()
+            parser = _get_parser()
             ast = parser.parse(filter_expr)
             
             condition = SCIMFilterParser._ast_to_sqlalchemy(ast, attr_map, query)
             if condition is not None:
                 query = query.filter(condition)
         except Exception as e:
-            # Invalid filter - return query as-is
             import logging
             logger = logging.getLogger(__name__)
             logger.warning(f"Invalid SCIM filter expression: {filter_expr}, error: {str(e)}", exc_info=True)
-            pass
+            raise SCIMFilterError(f"Invalid filter expression: {str(e)}") from e
         
         return query
