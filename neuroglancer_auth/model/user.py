@@ -277,7 +277,7 @@ class User(db.Model):
         )
 
     def update(self, data):
-        user_fields = ["admin", "name", "pi", "gdpr_consent", "read_only"]
+        user_fields = ["admin", "name", "pi", "gdpr_consent", "read_only", "email"]
 
         for field in user_fields:
             if field in data:

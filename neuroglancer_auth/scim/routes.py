@@ -571,6 +571,33 @@ def replace_user(scim_id):
         response.headers["Content-Type"] = "application/scim+json"
         return response
         
+    except sqlalchemy.exc.IntegrityError as e:
+        # Rollback all changes (including external_id) if any update fails
+        # This ensures transaction atomicity - either all updates succeed or none do
+        db.session.rollback()
+        
+        # Check if this is a duplicate email error
+        if "email" in update_data:
+            existing_user = User.get_by_email(update_data["email"])
+            if existing_user and existing_user.id != user.id:
+                return build_error_response(
+                    409,
+                    "uniqueness",
+                    f"User with email '{update_data['email']}' already exists.",
+                )
+        
+        # Check for other IntegrityError cases (e.g., NULL constraint)
+        error_msg = str(e.orig) if hasattr(e, 'orig') else str(e)
+        if "NOT NULL" in error_msg or "null value" in error_msg.lower():
+            return build_error_response(
+                400,
+                "invalidValue",
+                f"Required field constraint violation: {error_msg}",
+            )
+        
+        # Generic conflict error for other IntegrityErrors
+        return build_error_response(409, "uniqueness", "User update failed due to constraint violation")
+        
     except Exception as e:
         # Rollback all changes (including external_id) if any update fails
         # This ensures transaction atomicity - either all updates succeed or none do
@@ -603,10 +630,22 @@ def patch_user(scim_id):
         if op_type == "replace":
             # Handle path-based updates
             if path == "userName" or path.startswith("emails["):
-                if isinstance(value, dict):
-                    user.update({"email": value.get("value", value)})
-                else:
-                    user.update({"email": value})
+                email_value = value.get("value", value) if isinstance(value, dict) else value
+                try:
+                    user.update({"email": email_value})
+                except sqlalchemy.exc.IntegrityError as e:
+                    from ..model.base import db
+                    db.session.rollback()
+                    # Check if this is a duplicate email error
+                    existing_user = User.get_by_email(email_value)
+                    if existing_user and existing_user.id != user.id:
+                        return build_error_response(
+                            409,
+                            "uniqueness",
+                            f"User with email '{email_value}' already exists.",
+                        )
+                    # Re-raise if it's a different IntegrityError
+                    raise
             elif path == "name.givenName" or path == "name.familyName" or path == "displayName":
                 # Update name
                 if isinstance(value, dict):
@@ -627,7 +666,22 @@ def patch_user(scim_id):
                 # Sanitize pi field to prevent IntegrityError if it's None
                 if "pi" in user_data:
                     user_data["pi"] = _sanitize_pi_field(user_data["pi"])
-                user.update(user_data)
+                try:
+                    user.update(user_data)
+                except sqlalchemy.exc.IntegrityError as e:
+                    from ..model.base import db
+                    db.session.rollback()
+                    # Check if this is a duplicate email error
+                    if "email" in user_data:
+                        existing_user = User.get_by_email(user_data["email"])
+                        if existing_user and existing_user.id != user.id:
+                            return build_error_response(
+                                409,
+                                "uniqueness",
+                                f"User with email '{user_data['email']}' already exists.",
+                            )
+                    # Re-raise if it's a different IntegrityError
+                    raise
         
         elif op_type == "add":
             # Add operation
