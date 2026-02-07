@@ -54,18 +54,49 @@ class SCIMFilterError(Exception):
 class SCIMFilterParser:
     """Parser for SCIM filter expressions using scim2-filter-parser."""
     
+    @staticmethod
+    def _eq_operator(attr, val, case_insensitive=False):
+        """
+        Equality operator for strings per RFC 7644 §3.4.2.2.
+        For string values, uses ilike for case-insensitive comparison if case_insensitive is True,
+        otherwise uses case-sensitive == comparison.
+        For non-string values (numbers, booleans), uses regular equality.
+        """
+        if isinstance(val, str) and case_insensitive:
+            # Use ilike for exact case-insensitive string match (no wildcards)
+            return attr.ilike(val)
+        else:
+            # For non-strings or case-sensitive strings, use regular equality
+            return attr == val
+    
+    @staticmethod
+    def _ne_operator(attr, val, case_insensitive=False):
+        """
+        Inequality operator for strings per RFC 7644 §3.4.2.2.
+        For string values, uses NOT ilike for case-insensitive comparison if case_insensitive is True,
+        otherwise uses case-sensitive != comparison.
+        For non-string values, uses regular inequality.
+        """
+        if isinstance(val, str) and case_insensitive:
+            # Use NOT ilike for exact case-insensitive string match
+            return ~attr.ilike(val)
+        else:
+            # For non-strings or case-sensitive strings, use regular inequality
+            return attr != val
+    
     # SCIM filter operators mapped to SQLAlchemy conditions
+    # Note: eq and ne case sensitivity is determined by the attribute's caseExact property
     OPERATORS = {
-        "eq": lambda attr, val: attr == val,
-        "ne": lambda attr, val: attr != val,
-        "co": lambda attr, val: attr.ilike(f"%{val}%"),  # contains (case-insensitive)
-        "sw": lambda attr, val: attr.ilike(f"{val}%"),  # starts with
-        "ew": lambda attr, val: attr.ilike(f"%{val}"),  # ends with
-        "pr": lambda attr, val: attr.isnot(None),  # present (value ignored)
-        "gt": lambda attr, val: attr > val,
-        "ge": lambda attr, val: attr >= val,
-        "lt": lambda attr, val: attr < val,
-        "le": lambda attr, val: attr <= val,
+        "eq": lambda attr, val, case_insensitive=False: SCIMFilterParser._eq_operator(attr, val, case_insensitive),
+        "ne": lambda attr, val, case_insensitive=False: SCIMFilterParser._ne_operator(attr, val, case_insensitive),
+        "co": lambda attr, val, case_insensitive=False: attr.ilike(f"%{val}%"),  # contains (case-insensitive)
+        "sw": lambda attr, val, case_insensitive=False: attr.ilike(f"{val}%"),  # starts with
+        "ew": lambda attr, val, case_insensitive=False: attr.ilike(f"%{val}"),  # ends with
+        "pr": lambda attr, val, case_insensitive=False: attr.isnot(None),  # present (value ignored)
+        "gt": lambda attr, val, case_insensitive=False: attr > val,
+        "ge": lambda attr, val, case_insensitive=False: attr >= val,
+        "lt": lambda attr, val, case_insensitive=False: attr < val,
+        "le": lambda attr, val, case_insensitive=False: attr <= val,
     }
     
     @staticmethod
@@ -109,7 +140,10 @@ class SCIMFilterParser:
                 attr_name = attr_path_obj.value
             else:
                 raise ValueError(f"Invalid attribute path: {attr_path_obj} dir: {dir(attr_path_obj)}")
-                
+            
+            # Check if attribute path has case_insensitive property
+            # This is determined by the schema's caseExact property (caseExact=false means case_insensitive=True)
+            case_insensitive = getattr(attr_path_obj, 'case_insensitive', False)
             
             # Operator is already a string (e.g., 'eq', 'ne', 'co')
             operator = expr.value
@@ -143,7 +177,7 @@ class SCIMFilterParser:
             if value is None:
                 # For "pr" operator, value is ignored
                 if operator == "pr":
-                    condition = op_func(sqlalchemy_attr, None)
+                    condition = op_func(sqlalchemy_attr, None, case_insensitive)
                 else:
                     return None
             else:
@@ -154,7 +188,7 @@ class SCIMFilterParser:
                     elif value.lower() == "false":
                         value = False
                 
-                condition = op_func(sqlalchemy_attr, value)
+                condition = op_func(sqlalchemy_attr, value, case_insensitive)
             
             # Apply negation if needed
             if is_negated:
