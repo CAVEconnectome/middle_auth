@@ -78,19 +78,52 @@ class SCIMFilterParser:
         Convert SCIM AST node to SQLAlchemy condition.
         
         Args:
-            ast_node: AST node from scim2-filter-parser
+            ast_node: AST node from scim2-filter-parser (Filter object)
             attr_map: Mapping of SCIM attribute names to SQLAlchemy model attributes
             query: SQLAlchemy query object
             
         Returns:
             SQLAlchemy condition or None if attribute not mapped
         """
-        # Check for attribute expression (has attribute_path, operator, comp_value)
-        if hasattr(ast_node, 'attribute_path') and hasattr(ast_node, 'operator'):
-            # Attribute comparison: attr operator value
-            attr_name = ast_node.attribute_path
-            operator = ast_node.operator
-            value = getattr(ast_node, 'comp_value', None)
+        # Handle negated (NOT) expressions first
+        # Filter(expr=..., negated=True) means the expression is negated
+        is_negated = getattr(ast_node, 'negated', False)
+        
+        # Get the inner expression
+        if not hasattr(ast_node, 'expr'):
+            return None
+        
+        expr = ast_node.expr
+        
+        # Check for AttrExpr (attribute comparison: userName eq "value")
+        if hasattr(expr, 'attr_path') and hasattr(expr, 'value'):
+            # Extract attribute name from AttrPath object
+            attr_path_obj = expr.attr_path
+            
+            # Try multiple ways to extract the attribute path string
+            if isinstance(attr_path_obj, str):
+                attr_name = attr_path_obj
+            elif hasattr(attr_path_obj, 'value'):
+                attr_name = attr_path_obj.value
+            else:
+                raise ValueError(f"Invalid attribute path: {attr_path_obj}")
+                
+            
+            # Operator is already a string (e.g., 'eq', 'ne', 'co')
+            operator = expr.value
+            
+            # Extract comparison value from CompValue object
+            comp_value_obj = getattr(expr, 'comp_value', None)
+            if comp_value_obj is not None:
+                if hasattr(comp_value_obj, 'value'):
+                    value = comp_value_obj.value
+                elif hasattr(comp_value_obj, 'val'):
+                    value = comp_value_obj.val
+                else:
+                    # Try string conversion as fallback
+                    value = str(comp_value_obj)
+            else:
+                value = None
             
             # Map SCIM attribute to SQLAlchemy attribute
             if attr_name not in attr_map or attr_map[attr_name] is None:
@@ -108,46 +141,60 @@ class SCIMFilterParser:
             if value is None:
                 # For "pr" operator, value is ignored
                 if operator == "pr":
-                    return op_func(sqlalchemy_attr, None)
-                return None
+                    condition = op_func(sqlalchemy_attr, None)
+                else:
+                    return None
+            else:
+                # Handle boolean strings
+                if isinstance(value, str):
+                    if value.lower() == "true":
+                        value = True
+                    elif value.lower() == "false":
+                        value = False
+                
+                condition = op_func(sqlalchemy_attr, value)
             
-            # Handle boolean strings
-            if isinstance(value, str):
-                if value.lower() == "true":
-                    value = True
-                elif value.lower() == "false":
-                    value = False
-            
-            return op_func(sqlalchemy_attr, value)
+            # Apply negation if needed
+            if is_negated:
+                return not_(condition)
+            return condition
         
-        # Check for logical expression (has left, right, operator)
-        elif hasattr(ast_node, 'left') and hasattr(ast_node, 'right') and hasattr(ast_node, 'operator'):
-            # Logical operator: and/or
-            left = SCIMFilterParser._ast_to_sqlalchemy(ast_node.left, attr_map, query)
-            right = SCIMFilterParser._ast_to_sqlalchemy(ast_node.right, attr_map, query)
+        # Check for LogExpr (logical expression: and/or)
+        # LogExpr(op='or', expr1=Filter, expr2=Filter)
+        elif hasattr(expr, 'op') and hasattr(expr, 'expr1') and hasattr(expr, 'expr2'):
+            # Recursively process left and right expressions
+            left = SCIMFilterParser._ast_to_sqlalchemy(expr.expr1, attr_map, query)
+            right = SCIMFilterParser._ast_to_sqlalchemy(expr.expr2, attr_map, query)
             
             if left is None and right is None:
-                return None
-            if left is None:
-                return right
-            if right is None:
-                return left
-            
-            operator = ast_node.operator
-            if operator == "and":
-                return and_(left, right)
-            elif operator == "or":
-                return or_(left, right)
+                result = None
+            elif left is None:
+                result = right
+            elif right is None:
+                result = left
             else:
-                return None
+                operator = expr.op
+                if operator == "and":
+                    result = and_(left, right)
+                elif operator == "or":
+                    result = or_(left, right)
+                else:
+                    result = None
+            
+            # Apply negation if needed
+            if is_negated and result is not None:
+                return not_(result)
+            return result
         
-        # Check for not expression (has expression attribute but not left/right)
-        elif hasattr(ast_node, 'expression') and not (hasattr(ast_node, 'left') and hasattr(ast_node, 'right')):
-            # Not operator
-            condition = SCIMFilterParser._ast_to_sqlalchemy(ast_node.expression, attr_map, query)
-            if condition is None:
-                return None
-            return not_(condition)
+        # Check for nested Filter (e.g., in parentheses or NOT)
+        elif hasattr(expr, 'expr') or hasattr(expr, 'negated'):
+            # Recursively process nested filter
+            condition = SCIMFilterParser._ast_to_sqlalchemy(expr, attr_map, query)
+            
+            # Apply negation if needed
+            if is_negated and condition is not None:
+                return not_(condition)
+            return condition
         
         return None
     
