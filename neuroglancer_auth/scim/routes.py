@@ -36,6 +36,7 @@ from .utils import (
     generate_scim_id,
     get_base_url,
     parse_pagination_params,
+    SCIMPaginationError,
 )
 
 URL_PREFIX = os.environ.get("URL_PREFIX", "auth")
@@ -353,7 +354,14 @@ def get_schema(schema_id):
 def list_users():
     """List/search Users."""
     # Parse pagination
-    start_index, count = parse_pagination_params()
+    try:
+        start_index, count = parse_pagination_params()
+    except SCIMPaginationError as e:
+        return build_error_response(
+            400,
+            "invalidValue",
+            str(e)
+        )
     
     # Parse filter
     filter_expr = flask.request.args.get("filter")
@@ -606,6 +614,13 @@ def patch_user(scim_id):
                 else:
                     name = value
                 user.update({"name": name})
+            elif path == "externalId":
+                # Update external_id
+                external_id = value.get("value", value) if isinstance(value, dict) else value
+                user.external_id = external_id if external_id else None
+                from ..model.base import db
+                db.session.commit()
+                user.update_cache()
             elif isinstance(value, dict):
                 # Direct value update
                 user_data = UserSCIMSerializer.from_scim({"schemas": [], **value})
@@ -705,7 +720,14 @@ def delete_user(scim_id):
 def list_groups():
     """List/search Groups."""
     # Parse pagination
-    start_index, count = parse_pagination_params()
+    try:
+        start_index, count = parse_pagination_params()
+    except SCIMPaginationError as e:
+        return build_error_response(
+            400,
+            "invalidValue",
+            str(e)
+        )
     
     # Parse filter
     filter_expr = flask.request.args.get("filter")
@@ -997,6 +1019,13 @@ def patch_group(scim_id):
                 from ..model.base import db
                 db.session.commit()
                 group.update_cache()
+            elif path == "externalId":
+                # Update external_id
+                external_id = value.get("value", value) if isinstance(value, dict) else value
+                group.external_id = external_id if external_id else None
+                from ..model.base import db
+                db.session.commit()
+                group.update_cache()
             elif path == "urn:ietf:params:scim:schemas:neuroglancer:2.0:GroupPermissions:datasetPermissions":
                 # Replace entire datasetPermissions array
                 if isinstance(value, list):
@@ -1276,7 +1305,14 @@ def delete_group(scim_id):
 def list_datasets():
     """List/search Datasets."""
     # Parse pagination
-    start_index, count = parse_pagination_params()
+    try:
+        start_index, count = parse_pagination_params()
+    except SCIMPaginationError as e:
+        return build_error_response(
+            400,
+            "invalidValue",
+            str(e)
+        )
     
     # Parse filter
     filter_expr = flask.request.args.get("filter")
@@ -1502,6 +1538,13 @@ def patch_dataset(scim_id):
                 dataset.update({"name": value})
             elif path == "tosId":
                 dataset.update({"tos_id": value})
+            elif path == "externalId":
+                # Update external_id
+                external_id = value.get("value", value) if isinstance(value, dict) else value
+                dataset.external_id = external_id if external_id else None
+                from ..model.base import db
+                db.session.commit()
+                dataset.update_cache()
             elif path.startswith("serviceTables[") and "]" in path:
                 # Replace specific service table entry
                 # Path format: "serviceTables[value eq \"service:table\"]" or "serviceTables[0]"
