@@ -61,16 +61,16 @@ def upgrade():
     
     # Make scim_id columns NOT NULL after populating all records
     # Note: external_id remains nullable as it's optional
-    op.alter_column("user", "scim_id", nullable=False)
-    op.alter_column("group", "scim_id", nullable=False)
-    op.alter_column("dataset", "scim_id", nullable=False)
+    #op.alter_column("user", "scim_id", nullable=False)
+    #op.alter_column("group", "scim_id", nullable=False)
+    #op.alter_column("dataset", "scim_id", nullable=False)
 
 
 def downgrade():
     # Make scim_id columns nullable again
-    op.alter_column("dataset", "scim_id", nullable=True)
-    op.alter_column("group", "scim_id", nullable=True)
-    op.alter_column("user", "scim_id", nullable=True)
+    #op.alter_column("dataset", "scim_id", nullable=True)
+    #op.alter_column("group", "scim_id", nullable=True)
+    #op.alter_column("user", "scim_id", nullable=True)
     
     # Remove indexes
     op.drop_index("ix_dataset_external_id", table_name="dataset")
