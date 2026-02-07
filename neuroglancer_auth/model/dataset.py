@@ -5,6 +5,9 @@ class Dataset(db.Model):
     id = db.Column(db.Integer, primary_key=True, autoincrement=True)
     name = db.Column(db.String(120), unique=True, nullable=False)
     tos_id = db.Column("tos_id", db.Integer, db.ForeignKey("tos.id"), nullable=True)
+    # SCIM fields
+    scim_id = db.Column(db.String(36), unique=True, nullable=True, index=True)
+    external_id = db.Column(db.String(255), nullable=True, index=True)
 
     def __repr__(self):
         return self.name
@@ -28,8 +31,8 @@ class Dataset(db.Model):
             return Dataset.query.all()
 
     @staticmethod
-    def add(name, tos_id):
-        dataset = Dataset(name=name, tos_id=tos_id)
+    def add(name, tos_id, scim_id=None, external_id=None):
+        dataset = Dataset(name=name, tos_id=tos_id, scim_id=scim_id, external_id=external_id)
         db.session.add(dataset)
         db.session.commit()
         return dataset
