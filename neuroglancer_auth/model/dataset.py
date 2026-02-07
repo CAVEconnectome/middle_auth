@@ -41,7 +41,7 @@ class Dataset(db.Model):
             from ..scim.utils import generate_scim_id
             dataset.scim_id = generate_scim_id(dataset.id, "Dataset")
         
-        db.session.commit()m
+        db.session.commit()
         return dataset
 
     def update_cache(self):
