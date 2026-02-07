@@ -535,20 +535,27 @@ def replace_user(scim_id):
     # Convert SCIM to internal format
     user_data = UserSCIMSerializer.from_scim(data)
     
-    # Update external_id if provided
+    from ..model.base import db
+    
+    # Update external_id if provided (set but don't commit yet - will be committed with other updates)
     if "external_id" in user_data:
         user.external_id = user_data["external_id"]
-        from ..model.base import db
-        db.session.commit()
     
-    # Update user (remove external_id from update_data as it's already handled)
+    # Update user (remove external_id from update_data as it's handled separately)
     # Also sanitize pi field to prevent IntegrityError if it's None
     update_data = {k: v for k, v in user_data.items() if k != "external_id"}
     if "pi" in update_data:
         update_data["pi"] = _sanitize_pi_field(update_data["pi"])
+    
     try:
+        # Apply all updates atomically
+        # user.update() commits internally, so if it succeeds, external_id is also committed
+        # If it fails, we rollback everything including external_id
         if update_data:
             user.update(update_data)
+        elif "external_id" in user_data:
+            # If only external_id was updated, commit it now
+            db.session.commit()
         
         # Serialize and return
         resource = UserSCIMSerializer.to_scim(user)
@@ -557,6 +564,9 @@ def replace_user(scim_id):
         return response
         
     except Exception as e:
+        # Rollback all changes (including external_id) if any update fails
+        # This ensures transaction atomicity - either all updates succeed or none do
+        db.session.rollback()
         return build_error_response(400, "invalidValue", str(e))
 
 
@@ -1416,28 +1426,47 @@ def replace_dataset(scim_id):
     # Convert SCIM to internal format
     dataset_data = DatasetSCIMSerializer.from_scim(data)
     
-    # Update external_id directly (Dataset.update() only processes name and tos_id)
-    if "external_id" in dataset_data:
-        dataset.external_id = dataset_data["external_id"]
+    from ..model.base import db
     
-    # Update dataset using existing method
-    dataset.update(dataset_data)
-    
-    # Update ServiceTable mappings if provided
-    if "serviceTables" in data:
-        # Remove existing mappings
-        ServiceTable.query.filter_by(dataset_id=dataset.id).delete()
-        from ..model.base import db
+    try:
+        # Update external_id directly (Dataset.update() only processes name and tos_id)
+        if "external_id" in dataset_data:
+            dataset.external_id = dataset_data["external_id"]
         
+        # Update dataset fields manually to avoid premature commit
+        # (dataset.update() commits internally, which breaks atomicity)
+        fields = ["name", "tos_id"]
+        for field in fields:
+            if field in dataset_data:
+                setattr(dataset, field, dataset_data[field])
+        
+        # Update ServiceTable mappings if provided
+        if "serviceTables" in data:
+            # Remove existing mappings (don't commit yet)
+            ServiceTable.query.filter_by(dataset_id=dataset.id).delete()
+            
+            # Add new mappings (don't commit yet - ServiceTable.add() commits internally)
+            # Manually create ServiceTable records instead of using ServiceTable.add()
+            # to avoid premature commits and ensure atomicity
+            for st in data["serviceTables"]:
+                service_table = ServiceTable(
+                    service_name=st["serviceName"],
+                    table_name=st["tableName"],
+                    dataset_id=dataset.id,
+                )
+                db.session.add(service_table)
+        
+        # Commit all changes atomically
         db.session.commit()
         
-        # Add new mappings
-        for st in data["serviceTables"]:
-            ServiceTable.add(
-                service_name=st["serviceName"],
-                table_name=st["tableName"],
-                dataset=dataset.name,
-            )
+        # Update cache after successful commit
+        dataset.update_cache()
+        
+    except Exception as e:
+        # Rollback all changes if any operation fails
+        # This ensures transaction atomicity - either all updates succeed or none do
+        db.session.rollback()
+        return build_error_response(400, "invalidValue", str(e))
     
     # Serialize and return
     resource = DatasetSCIMSerializer.to_scim(dataset)
