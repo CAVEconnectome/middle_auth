@@ -102,7 +102,7 @@ class SCIMFilterParser:
             
             # Try multiple ways to extract the attribute path string
             if hasattr(attr_path_obj, 'attr_name'):
-                attr_name = attr_path_obj.attr_named
+                attr_name = attr_path_obj.attr_name
             elif isinstance(attr_path_obj, str):
                 attr_name = attr_path_obj
             elif hasattr(attr_path_obj, 'value'):
