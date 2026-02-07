@@ -13,6 +13,11 @@ import flask
 SCIM_NAMESPACE = uuid.UUID("6ba7b810-9dad-11d1-80b4-00c04fd430c8")
 
 
+class SCIMPaginationError(Exception):
+    """Exception for invalid SCIM pagination parameters."""
+    pass
+
+
 def generate_scim_id(internal_id: int, resource_type: str) -> str:
     """
     Convert internal integer ID to SCIM-compliant UUID string.
@@ -165,9 +170,34 @@ def parse_pagination_params() -> tuple[int, int]:
         Tuple of (start_index, count)
         start_index is 1-based, defaults to 1
         count is number of results, defaults to 100
+        
+    Raises:
+        SCIMPaginationError: If startIndex or count are invalid (non-numeric)
     """
-    start_index = int(flask.request.args.get("startIndex", 1))
-    count = int(flask.request.args.get("count", 100))
+    start_index_str = flask.request.args.get("startIndex")
+    count_str = flask.request.args.get("count")
+    
+    # Parse startIndex with error handling
+    if start_index_str is None:
+        start_index = 1
+    else:
+        try:
+            start_index = int(start_index_str)
+        except ValueError:
+            raise SCIMPaginationError(
+                f"Invalid startIndex parameter: '{start_index_str}'. Must be a positive integer."
+            )
+    
+    # Parse count with error handling
+    if count_str is None:
+        count = 100
+    else:
+        try:
+            count = int(count_str)
+        except ValueError:
+            raise SCIMPaginationError(
+                f"Invalid count parameter: '{count_str}'. Must be a positive integer."
+            )
     
     # SCIM spec: startIndex is 1-based
     if start_index < 1:
