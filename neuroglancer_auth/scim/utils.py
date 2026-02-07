@@ -170,9 +170,10 @@ def parse_pagination_params() -> tuple[int, int]:
         Tuple of (start_index, count)
         start_index is 1-based, defaults to 1
         count is number of results, defaults to 100
+        count=0 is valid per RFC 7644 §3.4.2.4 (returns only totalResults)
         
     Raises:
-        SCIMPaginationError: If startIndex or count are invalid (non-numeric)
+        SCIMPaginationError: If startIndex or count are invalid (non-numeric or negative)
     """
     start_index_str = flask.request.args.get("startIndex")
     count_str = flask.request.args.get("count")
@@ -196,18 +197,22 @@ def parse_pagination_params() -> tuple[int, int]:
             count = int(count_str)
         except ValueError:
             raise SCIMPaginationError(
-                f"Invalid count parameter: '{count_str}'. Must be a positive integer."
+                f"Invalid count parameter: '{count_str}'. Must be a non-negative integer."
             )
     
     # SCIM spec: startIndex is 1-based
     if start_index < 1:
         start_index = 1
     
+    # Validate count: allow 0 (RFC 7644 §3.4.2.4), reject negative values
+    if count < 0:
+        raise SCIMPaginationError(
+            f"Invalid count parameter: '{count}'. Must be a non-negative integer."
+        )
+    
     # Limit max count
     if count > 1000:
         count = 1000
-    if count < 1:
-        count = 100
     
     return start_index, count
 
