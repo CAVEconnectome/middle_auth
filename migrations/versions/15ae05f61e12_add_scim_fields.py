@@ -31,14 +31,10 @@ def upgrade():
 
 
 def downgrade():
-    # Remove indexes
-    op.drop_index("ix_dataset_external_id", table_name="dataset")
-    op.drop_index("ix_dataset_scim_id", table_name="dataset")
-    op.drop_index("ix_group_external_id", table_name="group")
-    op.drop_index("ix_group_scim_id", table_name="group")
-    op.drop_index("ix_user_external_id", table_name="user")
-    op.drop_index("ix_user_scim_id", table_name="user")
-
+    # Note: Indexes are created in the next migration (a1b2c3d4e5f6),
+    # so they should not be dropped here. They will be dropped when
+    # downgrading that migration.
+    
     # Remove columns
     op.drop_column("dataset", "external_id")
     op.drop_column("dataset", "scim_id")
