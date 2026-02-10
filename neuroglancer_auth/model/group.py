@@ -4,6 +4,9 @@ from .base import db
 class Group(db.Model):
     id = db.Column(db.Integer, primary_key=True, autoincrement=True)
     name = db.Column(db.String(120), unique=True, nullable=False)
+    # SCIM fields
+    scim_id = db.Column(db.String(36), unique=True, nullable=True, index=True)
+    external_id = db.Column(db.String(255), nullable=True, index=True)
 
     def __repr__(self):
         return self.name
@@ -26,9 +29,16 @@ class Group(db.Model):
             return Group.query.order_by(Group.id.asc()).all()
 
     @staticmethod
-    def add(name):
-        group = Group(name=name)
+    def add(name, scim_id=None, external_id=None):
+        group = Group(name=name, scim_id=scim_id, external_id=external_id)
         db.session.add(group)
+        db.session.flush()  # get inserted id
+        
+        # Auto-generate scim_id if not provided
+        if not group.scim_id:
+            from ..scim.utils import generate_scim_id
+            group.scim_id = generate_scim_id(group.id, "Group")
+        
         db.session.commit()
         return group
 
