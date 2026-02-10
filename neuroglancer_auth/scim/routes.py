@@ -605,6 +605,109 @@ def replace_user(scim_id):
         return build_error_response(400, "invalidValue", str(e))
 
 
+# Helper functions for User PATCH operations
+def _handle_user_replace(user, path, value):
+    """Handle replace operation for User."""
+    if path == "userName" or path.startswith("emails["):
+        email_value = value.get("value", value) if isinstance(value, dict) else value
+        # Check for duplicate email before updating
+        existing_user = User.get_by_email(email_value)
+        if existing_user and existing_user.id != user.id:
+            raise ValueError(f"User with email '{email_value}' already exists.")
+        user.email = email_value
+    elif path == "name.givenName" or path == "name.familyName" or path == "displayName":
+        # Update name
+        if isinstance(value, dict):
+            name = f"{value.get('givenName', '')} {value.get('familyName', '')}".strip()
+        else:
+            name = value
+        user.name = name
+    elif path == "externalId":
+        # Update external_id
+        external_id = value.get("value", value) if isinstance(value, dict) else value
+        user.external_id = external_id if external_id else None
+    elif isinstance(value, dict):
+        # Direct value update
+        user_data = UserSCIMSerializer.from_scim({"schemas": [], **value})
+        # Sanitize pi field to prevent IntegrityError if it's None
+        if "pi" in user_data:
+            user_data["pi"] = _sanitize_pi_field(user_data["pi"])
+        # Check for duplicate email before updating
+        if "email" in user_data:
+            existing_user = User.get_by_email(user_data["email"])
+            if existing_user and existing_user.id != user.id:
+                raise ValueError(f"User with email '{user_data['email']}' already exists.")
+        # Apply updates directly to user object
+        for field, field_value in user_data.items():
+            if hasattr(user, field):
+                setattr(user, field, field_value)
+
+
+def _handle_user_add(user, path, value):
+    """Handle add operation for User."""
+    from ..model.base import db
+    
+    if path.startswith("groups[") or path == "groups":
+        # Add user to group
+        groups_to_add = []
+        if path == "groups":
+            # Value is array of groups
+            if isinstance(value, list):
+                for group_item in value:
+                    group_scim_id = group_item.get("value") if isinstance(group_item, dict) else group_item
+                    group = find_group_by_scim_identifier(scim_id=group_scim_id)
+                    if group:
+                        groups_to_add.append(group)
+        else:
+            # Single group in path like "groups[value eq \"...\"]" or direct value
+            group_scim_id = value.get("value") if isinstance(value, dict) else value
+            group = find_group_by_scim_identifier(scim_id=group_scim_id)
+            if group:
+                groups_to_add.append(group)
+        
+        # Add all groups (check for duplicates first)
+        for group in groups_to_add:
+            existing_ug = UserGroup.get(group.id, user.id)
+            if not existing_ug:
+                ug = UserGroup(user_id=user.id, group_id=group.id)
+                db.session.add(ug)
+
+
+def _handle_user_remove(user, path, value):
+    """Handle remove operation for User."""
+    from ..model.base import db
+    
+    if path.startswith("groups[") or path == "groups":
+        # Remove user from group
+        groups_to_remove = []
+        if path == "groups":
+            # Value is array of groups to remove
+            if isinstance(value, list):
+                for group_item in value:
+                    group_scim_id = group_item.get("value") if isinstance(group_item, dict) else group_item
+                    group = find_group_by_scim_identifier(scim_id=group_scim_id)
+                    if group:
+                        groups_to_remove.append(group)
+        else:
+            # Path contains filter expression like "groups[value eq \"...\"]"
+            # Extract identifier from path filter (RFC 7644: remove with filter has no value field)
+            group_scim_id = extract_identifier_from_path_filter(path)
+            if not group_scim_id:
+                # Fallback: try to get from value if provided (for backward compatibility)
+                group_scim_id = value.get("value") if isinstance(value, dict) else value
+            
+            if group_scim_id:
+                group = find_group_by_scim_identifier(scim_id=group_scim_id)
+                if group:
+                    groups_to_remove.append(group)
+        
+        # Remove all groups
+        for group in groups_to_remove:
+            ug = UserGroup.get(group.id, user.id)
+            if ug:
+                db.session.delete(ug)
+
+
 @scim_bp.route("/Users/<scim_id>", methods=["PATCH"])
 @scim_auth_required
 def patch_user(scim_id):
@@ -631,99 +734,11 @@ def patch_user(scim_id):
             value = op.get("value")
             
             if op_type == "replace":
-                # Handle path-based updates
-                if path == "userName" or path.startswith("emails["):
-                    email_value = value.get("value", value) if isinstance(value, dict) else value
-                    # Check for duplicate email before updating
-                    existing_user = User.get_by_email(email_value)
-                    if existing_user and existing_user.id != user.id:
-                        raise ValueError(f"User with email '{email_value}' already exists.")
-                    user.email = email_value
-                elif path == "name.givenName" or path == "name.familyName" or path == "displayName":
-                    # Update name
-                    if isinstance(value, dict):
-                        name = f"{value.get('givenName', '')} {value.get('familyName', '')}".strip()
-                    else:
-                        name = value
-                    user.name = name
-                elif path == "externalId":
-                    # Update external_id
-                    external_id = value.get("value", value) if isinstance(value, dict) else value
-                    user.external_id = external_id if external_id else None
-                elif isinstance(value, dict):
-                    # Direct value update
-                    user_data = UserSCIMSerializer.from_scim({"schemas": [], **value})
-                    # Sanitize pi field to prevent IntegrityError if it's None
-                    if "pi" in user_data:
-                        user_data["pi"] = _sanitize_pi_field(user_data["pi"])
-                    # Check for duplicate email before updating
-                    if "email" in user_data:
-                        existing_user = User.get_by_email(user_data["email"])
-                        if existing_user and existing_user.id != user.id:
-                            raise ValueError(f"User with email '{user_data['email']}' already exists.")
-                    # Apply updates directly to user object
-                    for field, field_value in user_data.items():
-                        if hasattr(user, field):
-                            setattr(user, field, field_value)
-            
+                _handle_user_replace(user, path, value)
             elif op_type == "add":
-                # Add operation
-                if path.startswith("groups[") or path == "groups":
-                    # Add user to group
-                    groups_to_add = []
-                    if path == "groups":
-                        # Value is array of groups
-                        if isinstance(value, list):
-                            for group_item in value:
-                                group_scim_id = group_item.get("value") if isinstance(group_item, dict) else group_item
-                                group = find_group_by_scim_identifier(scim_id=group_scim_id)
-                                if group:
-                                    groups_to_add.append(group)
-                    else:
-                        # Single group in path like "groups[value eq \"...\"]" or direct value
-                        group_scim_id = value.get("value") if isinstance(value, dict) else value
-                        group = find_group_by_scim_identifier(scim_id=group_scim_id)
-                        if group:
-                            groups_to_add.append(group)
-                    
-                    # Add all groups (check for duplicates first)
-                    for group in groups_to_add:
-                        existing_ug = UserGroup.get(group.id, user.id)
-                        if not existing_ug:
-                            ug = UserGroup(user_id=user.id, group_id=group.id)
-                            db.session.add(ug)
-            
+                _handle_user_add(user, path, value)
             elif op_type == "remove":
-                # Remove operation
-                if path.startswith("groups[") or path == "groups":
-                    # Remove user from group
-                    groups_to_remove = []
-                    if path == "groups":
-                        # Value is array of groups to remove
-                        if isinstance(value, list):
-                            for group_item in value:
-                                group_scim_id = group_item.get("value") if isinstance(group_item, dict) else group_item
-                                group = find_group_by_scim_identifier(scim_id=group_scim_id)
-                                if group:
-                                    groups_to_remove.append(group)
-                    else:
-                        # Path contains filter expression like "groups[value eq \"...\"]"
-                        # Extract identifier from path filter (RFC 7644: remove with filter has no value field)
-                        group_scim_id = extract_identifier_from_path_filter(path)
-                        if not group_scim_id:
-                            # Fallback: try to get from value if provided (for backward compatibility)
-                            group_scim_id = value.get("value") if isinstance(value, dict) else value
-                        
-                        if group_scim_id:
-                            group = find_group_by_scim_identifier(scim_id=group_scim_id)
-                            if group:
-                                groups_to_remove.append(group)
-                    
-                    # Remove all groups
-                    for group in groups_to_remove:
-                        ug = UserGroup.get(group.id, user.id)
-                        if ug:
-                            db.session.delete(ug)
+                _handle_user_remove(user, path, value)
         
         # Commit all changes atomically
         db.session.commit()
@@ -1073,6 +1088,246 @@ def replace_group(scim_id):
     return response
 
 
+# Helper functions for Group PATCH operations
+def _handle_group_replace(group, path, value):
+    """Handle replace operation for Group."""
+    from ..model.base import db
+    
+    if path == "displayName":
+        group.name = value
+    elif path == "externalId":
+        # Update external_id
+        external_id = value.get("value", value) if isinstance(value, dict) else value
+        group.external_id = external_id if external_id else None
+    elif path == "urn:ietf:params:scim:schemas:neuroglancer:2.0:GroupPermissions:datasetPermissions":
+        # Replace entire datasetPermissions array
+        if isinstance(value, list):
+            # Remove all existing permissions for this group
+            GroupDatasetPermission.query.filter_by(group_id=group.id).delete()
+            
+            # Add all new permissions
+            for dp in value:
+                if isinstance(dp, dict):
+                    dataset_scim_id = dp.get("datasetId")
+                    permission_names = dp.get("permissions", [])
+                    
+                    dataset = find_dataset_by_scim_identifier(scim_id=dataset_scim_id)
+                    if not dataset:
+                        continue
+                    
+                    permission_ids = []
+                    for perm_name in permission_names:
+                        perm = Permission.query.filter_by(name=perm_name).first()
+                        if perm:
+                            permission_ids.append(perm.id)
+                    
+                    # Add permissions directly to session
+                    for perm_id in permission_ids:
+                        gd = GroupDatasetPermission(
+                            group_id=group.id,
+                            dataset_id=dataset.id,
+                            permission_id=perm_id
+                        )
+                        db.session.add(gd)
+    elif path.startswith(
+        "urn:ietf:params:scim:schemas:neuroglancer:2.0:GroupPermissions:datasetPermissions"
+    ) or path.endswith(":datasetPermissions"):
+        # Replace dataset permissions (remove old, add new)
+        if isinstance(value, dict):
+            dataset_scim_id = value.get("datasetId")
+            permission_names = value.get("permissions", [])
+            
+            # Find dataset
+            dataset = find_dataset_by_scim_identifier(scim_id=dataset_scim_id)
+            if not dataset:
+                return
+            
+            # Remove all existing permissions for this dataset
+            GroupDatasetPermission.query.filter_by(
+                group_id=group.id,
+                dataset_id=dataset.id
+            ).delete()
+            
+            # Add new permissions
+            permission_ids = []
+            for perm_name in permission_names:
+                perm = Permission.query.filter_by(name=perm_name).first()
+                if perm:
+                    permission_ids.append(perm.id)
+            
+            # Add permissions directly to session
+            for perm_id in permission_ids:
+                gd = GroupDatasetPermission(
+                    group_id=group.id,
+                    dataset_id=dataset.id,
+                    permission_id=perm_id
+                )
+                db.session.add(gd)
+
+
+def _handle_group_add(group, path, value, affected_users):
+    """Handle add operation for Group."""
+    from ..model.base import db
+    
+    if path.startswith("members[") or path == "members":
+        # Add member to group
+        members_to_add = []
+        if path == "members":
+            # Value is array of members
+            if isinstance(value, list):
+                for member_item in value:
+                    member_scim_id = member_item.get("value") if isinstance(member_item, dict) else member_item
+                    member_user = find_user_by_scim_identifier(scim_id=member_scim_id)
+                    if member_user:
+                        members_to_add.append(member_user)
+        else:
+            # Single member
+            member_scim_id = value.get("value") if isinstance(value, dict) else value
+            member_user = find_user_by_scim_identifier(scim_id=member_scim_id)
+            if member_user:
+                members_to_add.append(member_user)
+        
+        # Add all members (check for duplicates first)
+        for member_user in members_to_add:
+            existing_ug = UserGroup.get(group.id, member_user.id)
+            if not existing_ug:
+                ug = UserGroup(user_id=member_user.id, group_id=group.id)
+                db.session.add(ug)
+                affected_users.add(member_user.id)
+    elif path == "urn:ietf:params:scim:schemas:neuroglancer:2.0:GroupPermissions:datasetPermissions":
+        # Add entire datasetPermissions array
+        if isinstance(value, list):
+            for dp in value:
+                if isinstance(dp, dict):
+                    dataset_scim_id = dp.get("datasetId")
+                    permission_names = dp.get("permissions", [])
+                    
+                    dataset = find_dataset_by_scim_identifier(scim_id=dataset_scim_id)
+                    if not dataset:
+                        continue
+                    
+                    permission_ids = []
+                    for perm_name in permission_names:
+                        perm = Permission.query.filter_by(name=perm_name).first()
+                        if perm:
+                            permission_ids.append(perm.id)
+                    
+                    # Add permissions directly to session (check for duplicates)
+                    for perm_id in permission_ids:
+                        existing = GroupDatasetPermission.query.filter_by(
+                            group_id=group.id,
+                            dataset_id=dataset.id,
+                            permission_id=perm_id
+                        ).first()
+                        if not existing:
+                            gd = GroupDatasetPermission(
+                                group_id=group.id,
+                                dataset_id=dataset.id,
+                                permission_id=perm_id
+                            )
+                            db.session.add(gd)
+    elif path.startswith(
+        "urn:ietf:params:scim:schemas:neuroglancer:2.0:GroupPermissions:datasetPermissions"
+    ) or path.endswith(":datasetPermissions"):
+        # Add dataset permission
+        if isinstance(value, dict):
+            dataset_scim_id = value.get("datasetId")
+            permission_names = value.get("permissions", [])
+            
+            # Find dataset
+            dataset = find_dataset_by_scim_identifier(scim_id=dataset_scim_id)
+            if not dataset:
+                return
+            
+            # Map permission names to IDs
+            permission_ids = []
+            for perm_name in permission_names:
+                perm = Permission.query.filter_by(name=perm_name).first()
+                if perm:
+                    permission_ids.append(perm.id)
+            
+            # Add permissions directly to session (check for duplicates)
+            for perm_id in permission_ids:
+                existing = GroupDatasetPermission.query.filter_by(
+                    group_id=group.id,
+                    dataset_id=dataset.id,
+                    permission_id=perm_id
+                ).first()
+                if not existing:
+                    gd = GroupDatasetPermission(
+                        group_id=group.id,
+                        dataset_id=dataset.id,
+                        permission_id=perm_id
+                    )
+                    db.session.add(gd)
+
+
+def _handle_group_remove(group, path, value, affected_users):
+    """Handle remove operation for Group."""
+    from ..model.base import db
+    
+    if path.startswith("members[") or path == "members":
+        # Remove member from group
+        members_to_remove = []
+        if path == "members":
+            # Value is array of members to remove
+            if isinstance(value, list):
+                for member_item in value:
+                    member_scim_id = member_item.get("value") if isinstance(member_item, dict) else member_item
+                    member_user = find_user_by_scim_identifier(scim_id=member_scim_id)
+                    if member_user:
+                        members_to_remove.append(member_user)
+        elif value is None:
+            # Remove all members from group
+            # Get affected users before deletion
+            affected_users_list = UserGroup.get_users(group.id)
+            affected_users.update([u.id for u in affected_users_list])
+            # Perform bulk delete
+            UserGroup.query.filter_by(group_id=group.id).delete()
+            return
+        else:
+            # Path contains filter expression like "members[value eq \"...\"]"
+            # Extract identifier from path filter (RFC 7644: remove with filter has no value field)
+            member_scim_id = extract_identifier_from_path_filter(path)
+            if not member_scim_id:
+                # Fallback: try to get from value if provided (for backward compatibility)
+                member_scim_id = value.get("value") if isinstance(value, dict) else value
+            
+            if member_scim_id:
+                member_user = find_user_by_scim_identifier(scim_id=member_scim_id)
+                if member_user:
+                    members_to_remove.append(member_user)
+        
+        # Remove all members
+        for member_user in members_to_remove:
+            ug = UserGroup.get(group.id, member_user.id)
+            if ug:
+                db.session.delete(ug)
+                affected_users.add(member_user.id)
+    elif path.startswith(
+        "urn:ietf:params:scim:schemas:neuroglancer:2.0:GroupPermissions:datasetPermissions"
+    ) or path.endswith(":datasetPermissions"):
+        # Remove dataset permission
+        if isinstance(value, dict):
+            dataset_scim_id = value.get("datasetId")
+            permission_names = value.get("permissions", [])
+            
+            # Find dataset
+            dataset = find_dataset_by_scim_identifier(scim_id=dataset_scim_id)
+            if not dataset:
+                return
+            
+            # Remove each permission
+            for perm_name in permission_names:
+                perm = Permission.query.filter_by(name=perm_name).first()
+                if perm:
+                    GroupDatasetPermission.query.filter_by(
+                        group_id=group.id,
+                        dataset_id=dataset.id,
+                        permission_id=perm.id
+                    ).delete()
+
+
 @scim_bp.route("/Groups/<scim_id>", methods=["PATCH"])
 @scim_auth_required
 def patch_group(scim_id):
@@ -1102,230 +1357,11 @@ def patch_group(scim_id):
             value = op.get("value")
             
             if op_type == "replace":
-                if path == "displayName":
-                    group.name = value
-                elif path == "externalId":
-                    # Update external_id
-                    external_id = value.get("value", value) if isinstance(value, dict) else value
-                    group.external_id = external_id if external_id else None
-                elif path == "urn:ietf:params:scim:schemas:neuroglancer:2.0:GroupPermissions:datasetPermissions":
-                    # Replace entire datasetPermissions array
-                    if isinstance(value, list):
-                        # Remove all existing permissions for this group
-                        GroupDatasetPermission.query.filter_by(group_id=group.id).delete()
-                        
-                        # Add all new permissions
-                        for dp in value:
-                            if isinstance(dp, dict):
-                                dataset_scim_id = dp.get("datasetId")
-                                permission_names = dp.get("permissions", [])
-                                
-                                dataset = find_dataset_by_scim_identifier(scim_id=dataset_scim_id)
-                                if not dataset:
-                                    continue
-                                
-                                permission_ids = []
-                                for perm_name in permission_names:
-                                    perm = Permission.query.filter_by(name=perm_name).first()
-                                    if perm:
-                                        permission_ids.append(perm.id)
-                                
-                                # Add permissions directly to session
-                                for perm_id in permission_ids:
-                                    gd = GroupDatasetPermission(
-                                        group_id=group.id,
-                                        dataset_id=dataset.id,
-                                        permission_id=perm_id
-                                    )
-                                    db.session.add(gd)
-                elif path.startswith(
-                    "urn:ietf:params:scim:schemas:neuroglancer:2.0:GroupPermissions:datasetPermissions"
-                ) or path.endswith(":datasetPermissions"):
-                    # Replace dataset permissions (remove old, add new)
-                    if isinstance(value, dict):
-                        dataset_scim_id = value.get("datasetId")
-                        permission_names = value.get("permissions", [])
-                        
-                        # Find dataset
-                        dataset = find_dataset_by_scim_identifier(scim_id=dataset_scim_id)
-                        if not dataset:
-                            continue
-                        
-                        # Remove all existing permissions for this dataset
-                        GroupDatasetPermission.query.filter_by(
-                            group_id=group.id,
-                            dataset_id=dataset.id
-                        ).delete()
-                        
-                        # Add new permissions
-                        permission_ids = []
-                        for perm_name in permission_names:
-                            perm = Permission.query.filter_by(name=perm_name).first()
-                            if perm:
-                                permission_ids.append(perm.id)
-                        
-                        # Add permissions directly to session
-                        for perm_id in permission_ids:
-                            gd = GroupDatasetPermission(
-                                group_id=group.id,
-                                dataset_id=dataset.id,
-                                permission_id=perm_id
-                            )
-                            db.session.add(gd)
-            
+                _handle_group_replace(group, path, value)
             elif op_type == "add":
-                if path.startswith("members[") or path == "members":
-                    # Add member to group
-                    members_to_add = []
-                    if path == "members":
-                        # Value is array of members
-                        if isinstance(value, list):
-                            for member_item in value:
-                                member_scim_id = member_item.get("value") if isinstance(member_item, dict) else member_item
-                                member_user = find_user_by_scim_identifier(scim_id=member_scim_id)
-                                if member_user:
-                                    members_to_add.append(member_user)
-                    else:
-                        # Single member
-                        member_scim_id = value.get("value") if isinstance(value, dict) else value
-                        member_user = find_user_by_scim_identifier(scim_id=member_scim_id)
-                        if member_user:
-                            members_to_add.append(member_user)
-                    
-                    # Add all members (check for duplicates first)
-                    for member_user in members_to_add:
-                        existing_ug = UserGroup.get(group.id, member_user.id)
-                        if not existing_ug:
-                            ug = UserGroup(user_id=member_user.id, group_id=group.id)
-                            db.session.add(ug)
-                            affected_users.add(member_user.id)
-                elif path == "urn:ietf:params:scim:schemas:neuroglancer:2.0:GroupPermissions:datasetPermissions":
-                    # Add entire datasetPermissions array
-                    if isinstance(value, list):
-                        for dp in value:
-                            if isinstance(dp, dict):
-                                dataset_scim_id = dp.get("datasetId")
-                                permission_names = dp.get("permissions", [])
-                                
-                                dataset = find_dataset_by_scim_identifier(scim_id=dataset_scim_id)
-                                if not dataset:
-                                    continue
-                                
-                                permission_ids = []
-                                for perm_name in permission_names:
-                                    perm = Permission.query.filter_by(name=perm_name).first()
-                                    if perm:
-                                        permission_ids.append(perm.id)
-                                
-                                # Add permissions directly to session (check for duplicates)
-                                for perm_id in permission_ids:
-                                    existing = GroupDatasetPermission.query.filter_by(
-                                        group_id=group.id,
-                                        dataset_id=dataset.id,
-                                        permission_id=perm_id
-                                    ).first()
-                                    if not existing:
-                                        gd = GroupDatasetPermission(
-                                            group_id=group.id,
-                                            dataset_id=dataset.id,
-                                            permission_id=perm_id
-                                        )
-                                        db.session.add(gd)
-                elif path.startswith(
-                    "urn:ietf:params:scim:schemas:neuroglancer:2.0:GroupPermissions:datasetPermissions"
-                ) or path.endswith(":datasetPermissions"):
-                    # Add dataset permission
-                    if isinstance(value, dict):
-                        dataset_scim_id = value.get("datasetId")
-                        permission_names = value.get("permissions", [])
-                        
-                        # Find dataset
-                        dataset = find_dataset_by_scim_identifier(scim_id=dataset_scim_id)
-                        if not dataset:
-                            continue
-                        
-                        # Map permission names to IDs
-                        permission_ids = []
-                        for perm_name in permission_names:
-                            perm = Permission.query.filter_by(name=perm_name).first()
-                            if perm:
-                                permission_ids.append(perm.id)
-                        
-                        # Add permissions directly to session (check for duplicates)
-                        for perm_id in permission_ids:
-                            existing = GroupDatasetPermission.query.filter_by(
-                                group_id=group.id,
-                                dataset_id=dataset.id,
-                                permission_id=perm_id
-                            ).first()
-                            if not existing:
-                                gd = GroupDatasetPermission(
-                                    group_id=group.id,
-                                    dataset_id=dataset.id,
-                                    permission_id=perm_id
-                                )
-                                db.session.add(gd)
-            
+                _handle_group_add(group, path, value, affected_users)
             elif op_type == "remove":
-                if path.startswith("members[") or path == "members":
-                    # Remove member from group
-                    members_to_remove = []
-                    if path == "members":
-                        # Value is array of members to remove
-                        if isinstance(value, list):
-                            for member_item in value:
-                                member_scim_id = member_item.get("value") if isinstance(member_item, dict) else member_item
-                                member_user = find_user_by_scim_identifier(scim_id=member_scim_id)
-                                if member_user:
-                                    members_to_remove.append(member_user)
-                    elif value is None:
-                        # Remove all members from group
-                        # Get affected users before deletion
-                        affected_users_list = UserGroup.get_users(group.id)
-                        affected_users.update([u.id for u in affected_users_list])
-                        # Perform bulk delete
-                        UserGroup.query.filter_by(group_id=group.id).delete()
-                    else:
-                        # Path contains filter expression like "members[value eq \"...\"]"
-                        # Extract identifier from path filter (RFC 7644: remove with filter has no value field)
-                        member_scim_id = extract_identifier_from_path_filter(path)
-                        if not member_scim_id:
-                            # Fallback: try to get from value if provided (for backward compatibility)
-                            member_scim_id = value.get("value") if isinstance(value, dict) else value
-                        
-                        if member_scim_id:
-                            member_user = find_user_by_scim_identifier(scim_id=member_scim_id)
-                            if member_user:
-                                members_to_remove.append(member_user)
-                    
-                    # Remove all members
-                    for member_user in members_to_remove:
-                        ug = UserGroup.get(group.id, member_user.id)
-                        if ug:
-                            db.session.delete(ug)
-                            affected_users.add(member_user.id)
-                elif path.startswith(
-                    "urn:ietf:params:scim:schemas:neuroglancer:2.0:GroupPermissions:datasetPermissions"
-                ) or path.endswith(":datasetPermissions"):
-                    # Remove dataset permission
-                    if isinstance(value, dict):
-                        dataset_scim_id = value.get("datasetId")
-                        permission_names = value.get("permissions", [])
-                        
-                        # Find dataset
-                        dataset = find_dataset_by_scim_identifier(scim_id=dataset_scim_id)
-                        if not dataset:
-                            continue
-                        
-                        # Remove each permission
-                        for perm_name in permission_names:
-                            perm = Permission.query.filter_by(name=perm_name).first()
-                            if perm:
-                                GroupDatasetPermission.query.filter_by(
-                                    group_id=group.id,
-                                    dataset_id=dataset.id,
-                                    permission_id=perm.id
-                                ).delete()
+                _handle_group_remove(group, path, value, affected_users)
         
         # Commit all changes atomically
         db.session.commit()
@@ -1615,10 +1651,187 @@ def replace_dataset(scim_id):
     return response
 
 
+# Helper functions for Dataset PATCH operations
+def _handle_dataset_replace(dataset, path, value):
+    """Handle replace operation for Dataset."""
+    from ..model.base import db
+    
+    if path == "name":
+        # Update name directly (avoid dataset.update() which commits internally)
+        dataset.name = value
+    elif path == "tosId":
+        # Update tos_id directly (avoid dataset.update() which commits internally)
+        dataset.tos_id = value
+    elif path == "externalId":
+        # Update external_id
+        external_id = value.get("value", value) if isinstance(value, dict) else value
+        dataset.external_id = external_id if external_id else None
+    elif path.startswith("serviceTables[") and "]" in path:
+        # Replace specific service table entry
+        # Path format: "serviceTables[value eq \"service:table\"]" or "serviceTables[0]"
+        if isinstance(value, dict):
+            service_name = value.get("serviceName")
+            table_name = value.get("tableName")
+            
+            # Try to parse index from path like "serviceTables[0]"
+            index_match = re.search(r'serviceTables\[(\d+)\]', path)
+            if index_match:
+                # Remove the specific entry by index (don't commit yet)
+                service_tables = ServiceTable.query.filter_by(dataset_id=dataset.id).all()
+                idx = int(index_match.group(1))
+                if 0 <= idx < len(service_tables):
+                    st = service_tables[idx]
+                    ServiceTable.query.filter_by(
+                        service_name=st.service_name,
+                        table_name=st.table_name,
+                        dataset_id=dataset.id
+                    ).delete()
+            
+            # Add new entry (don't commit yet - create manually to avoid ServiceTable.add() commit)
+            if service_name and table_name:
+                # Check if already exists
+                existing = ServiceTable.query.filter_by(
+                    service_name=service_name,
+                    table_name=table_name,
+                    dataset_id=dataset.id
+                ).first()
+                if not existing:
+                    service_table = ServiceTable(
+                        service_name=service_name,
+                        table_name=table_name,
+                        dataset_id=dataset.id,
+                    )
+                    db.session.add(service_table)
+    elif path == "serviceTables":
+        # Replace entire serviceTables array
+        if isinstance(value, list):
+            # Remove all existing service tables (don't commit yet)
+            ServiceTable.query.filter_by(dataset_id=dataset.id).delete()
+            
+            # Add new service tables (don't commit yet - create manually to avoid ServiceTable.add() commit)
+            for st in value:
+                if isinstance(st, dict):
+                    service_name = st.get("serviceName")
+                    table_name = st.get("tableName")
+                    if service_name and table_name:
+                        # Check if already exists (shouldn't after delete, but be safe)
+                        existing = ServiceTable.query.filter_by(
+                            service_name=service_name,
+                            table_name=table_name,
+                            dataset_id=dataset.id
+                        ).first()
+                        if not existing:
+                            service_table = ServiceTable(
+                                service_name=service_name,
+                                table_name=table_name,
+                                dataset_id=dataset.id,
+                            )
+                            db.session.add(service_table)
+
+
+def _handle_dataset_add(dataset, path, value):
+    """Handle add operation for Dataset."""
+    from ..model.base import db
+    
+    if path.startswith("serviceTables[") or path == "serviceTables":
+        # Add service table mapping
+        if path == "serviceTables":
+            # Value is array
+            if isinstance(value, list):
+                for st in value:
+                    if isinstance(st, dict):
+                        service_name = st.get("serviceName")
+                        table_name = st.get("tableName")
+                        if service_name and table_name:
+                            # Check if already exists
+                            existing = ServiceTable.query.filter_by(
+                                service_name=service_name,
+                                table_name=table_name,
+                                dataset_id=dataset.id
+                            ).first()
+                            if not existing:
+                                service_table = ServiceTable(
+                                    service_name=service_name,
+                                    table_name=table_name,
+                                    dataset_id=dataset.id,
+                                )
+                                db.session.add(service_table)
+        else:
+            # Single service table
+            if isinstance(value, dict):
+                service_name = value.get("serviceName")
+                table_name = value.get("tableName")
+                if service_name and table_name:
+                    # Check if already exists
+                    existing = ServiceTable.query.filter_by(
+                        service_name=service_name,
+                        table_name=table_name,
+                        dataset_id=dataset.id
+                    ).first()
+                    if not existing:
+                        service_table = ServiceTable(
+                            service_name=service_name,
+                            table_name=table_name,
+                            dataset_id=dataset.id,
+                        )
+                        db.session.add(service_table)
+
+
+def _handle_dataset_remove(dataset, path, value):
+    """Handle remove operation for Dataset."""
+    from ..model.base import db
+    
+    if path.startswith("serviceTables[") or path == "serviceTables":
+        # Remove service table mapping
+        if path == "serviceTables":
+            # Value is array of service tables to remove
+            if isinstance(value, list):
+                for st in value:
+                    if isinstance(st, dict):
+                        service_name = st.get("serviceName")
+                        table_name = st.get("tableName")
+                        if service_name and table_name:
+                            # Remove directly (don't commit yet - avoid ServiceTable.remove() commit)
+                            ServiceTable.query.filter_by(
+                                service_name=service_name,
+                                table_name=table_name,
+                                dataset_id=dataset.id
+                            ).delete()
+        else:
+            # Single service table to remove
+            # Try to parse index or value
+            index_match = re.search(r'serviceTables\[(\d+)\]', path)
+            if index_match:
+                # Remove by index
+                service_tables = ServiceTable.query.filter_by(dataset_id=dataset.id).all()
+                idx = int(index_match.group(1))
+                if 0 <= idx < len(service_tables):
+                    st = service_tables[idx]
+                    # Remove directly (don't commit yet - avoid ServiceTable.remove() commit)
+                    ServiceTable.query.filter_by(
+                        service_name=st.service_name,
+                        table_name=st.table_name,
+                        dataset_id=dataset.id
+                    ).delete()
+            elif isinstance(value, dict):
+                # Remove by serviceName and tableName
+                service_name = value.get("serviceName")
+                table_name = value.get("tableName")
+                if service_name and table_name:
+                    # Remove directly (don't commit yet - avoid ServiceTable.remove() commit)
+                    ServiceTable.query.filter_by(
+                        service_name=service_name,
+                        table_name=table_name,
+                        dataset_id=dataset.id
+                    ).delete()
+
+
 @scim_bp.route("/Datasets/<scim_id>", methods=["PATCH"])
 @scim_auth_required
 def patch_dataset(scim_id):
     """Partial update Dataset."""
+    from ..model.base import db
+    
     # Find dataset by scim_id
     dataset = find_dataset_by_scim_identifier(scim_id=scim_id)
     
@@ -1629,141 +1842,39 @@ def patch_dataset(scim_id):
     if not data:
         return build_error_response(400, "invalidSyntax", "Request body required")
     
-    # Handle PATCH operations
+    # Handle PATCH operations atomically - all succeed or all fail
     operations = data.get("Operations", [])
     
-    for op in operations:
-        op_type = op.get("op")
-        path = op.get("path", "")
-        value = op.get("value")
+    try:
+        for op in operations:
+            op_type = op.get("op")
+            path = op.get("path", "")
+            value = op.get("value")
+            
+            if op_type == "replace":
+                _handle_dataset_replace(dataset, path, value)
+            elif op_type == "add":
+                _handle_dataset_add(dataset, path, value)
+            elif op_type == "remove":
+                _handle_dataset_remove(dataset, path, value)
         
-        if op_type == "replace":
-            if path == "name":
-                dataset.update({"name": value})
-            elif path == "tosId":
-                dataset.update({"tos_id": value})
-            elif path == "externalId":
-                # Update external_id
-                external_id = value.get("value", value) if isinstance(value, dict) else value
-                dataset.external_id = external_id if external_id else None
-                from ..model.base import db
-                db.session.commit()
-                dataset.update_cache()
-            elif path.startswith("serviceTables[") and "]" in path:
-                # Replace specific service table entry
-                # Path format: "serviceTables[value eq \"service:table\"]" or "serviceTables[0]"
-                if isinstance(value, dict):
-                    service_name = value.get("serviceName")
-                    table_name = value.get("tableName")
-                    
-                    # Try to parse index from path like "serviceTables[0]"
-                    index_match = re.search(r'serviceTables\[(\d+)\]', path)
-                    if index_match:
-                        # Remove the specific entry by index
-                        service_tables = ServiceTable.query.filter_by(dataset_id=dataset.id).all()
-                        idx = int(index_match.group(1))
-                        if 0 <= idx < len(service_tables):
-                            st = service_tables[idx]
-                            ServiceTable.remove(st.service_name, st.table_name, dataset.name)
-                    
-                    # Add new entry
-                    if service_name and table_name:
-                        try:
-                            ServiceTable.add(
-                                service_name=service_name,
-                                table_name=table_name,
-                                dataset=dataset.name,
-                            )
-                        except sqlalchemy.exc.IntegrityError:
-                            pass  # Already exists
-            elif path == "serviceTables":
-                # Replace entire serviceTables array
-                if isinstance(value, list):
-                    # Remove all existing service tables
-                    ServiceTable.query.filter_by(dataset_id=dataset.id).delete()
-                    from ..model.base import db
-                    db.session.commit()
-                    
-                    # Add new service tables
-                    for st in value:
-                        if isinstance(st, dict):
-                            try:
-                                ServiceTable.add(
-                                    service_name=st["serviceName"],
-                                    table_name=st["tableName"],
-                                    dataset=dataset.name,
-                                )
-                            except sqlalchemy.exc.IntegrityError:
-                                pass
+        # Commit all changes atomically
+        db.session.commit()
         
-        elif op_type == "add":
-            if path.startswith("serviceTables[") or path == "serviceTables":
-                # Add service table mapping
-                if path == "serviceTables":
-                    # Value is array
-                    if isinstance(value, list):
-                        for st in value:
-                            if isinstance(st, dict):
-                                try:
-                                    ServiceTable.add(
-                                        service_name=st["serviceName"],
-                                        table_name=st["tableName"],
-                                        dataset=dataset.name,
-                                    )
-                                except sqlalchemy.exc.IntegrityError:
-                                    pass  # Already exists
-                else:
-                    # Single service table
-                    if isinstance(value, dict):
-                        try:
-                            ServiceTable.add(
-                                service_name=value["serviceName"],
-                                table_name=value["tableName"],
-                                dataset=dataset.name,
-                            )
-                        except sqlalchemy.exc.IntegrityError:
-                            pass  # Already exists
+        # Update cache after all changes are committed
+        dataset.update_cache()
         
-        elif op_type == "remove":
-            if path.startswith("serviceTables[") or path == "serviceTables":
-                # Remove service table mapping
-                if path == "serviceTables":
-                    # Value is array of service tables to remove
-                    if isinstance(value, list):
-                        for st in value:
-                            if isinstance(st, dict):
-                                try:
-                                    ServiceTable.remove(
-                                        service_name=st["serviceName"],
-                                        table_name=st["tableName"],
-                                        dataset=dataset.name,
-                                    )
-                                except ValueError:
-                                    pass  # Doesn't exist
-                else:
-                    # Single service table to remove
-                    # Try to parse index or value
-                    index_match = re.search(r'serviceTables\[(\d+)\]', path)
-                    if index_match:
-                        # Remove by index
-                        service_tables = ServiceTable.query.filter_by(dataset_id=dataset.id).all()
-                        idx = int(index_match.group(1))
-                        if 0 <= idx < len(service_tables):
-                            st = service_tables[idx]
-                            try:
-                                ServiceTable.remove(st.service_name, st.table_name, dataset.name)
-                            except ValueError:
-                                pass
-                    elif isinstance(value, dict):
-                        # Remove by serviceName and tableName
-                        try:
-                            ServiceTable.remove(
-                                service_name=value.get("serviceName"),
-                                table_name=value.get("tableName"),
-                                dataset=dataset.name,
-                            )
-                        except ValueError:
-                            pass
+    except sqlalchemy.exc.IntegrityError as e:
+        # Database integrity error
+        db.session.rollback()
+        error_msg = str(e.orig) if hasattr(e, 'orig') else str(e)
+        if "unique" in error_msg.lower() or "duplicate" in error_msg.lower():
+            return build_error_response(409, "uniqueness", "A constraint violation occurred.")
+        return build_error_response(400, "invalidValue", f"Database constraint violation: {error_msg}")
+    except Exception as e:
+        # Any other error - rollback and return error
+        db.session.rollback()
+        return build_error_response(400, "invalidValue", str(e))
     
     # Serialize and return
     resource = DatasetSCIMSerializer.to_scim(dataset)
