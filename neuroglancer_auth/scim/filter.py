@@ -256,6 +256,7 @@ class SCIMFilterParser:
         
         # Map SCIM attributes to User model attributes
         attr_map = {
+            "id": User.scim_id,
             "userName": User.email,
             "emails.value": User.email,
             "name.givenName": User.name,  # Simplified - full name matching
@@ -304,7 +305,7 @@ class SCIMFilterParser:
         
         attr_map = {
             "displayName": Group.name,
-            "id": Group.id,
+            "id": Group.scim_id,
         }
         
         try:
@@ -346,7 +347,7 @@ class SCIMFilterParser:
         
         attr_map = {
             "name": Dataset.name,
-            "id": Dataset.id,
+            "id": Dataset.scim_id,
             "tosId": Dataset.tos_id,
         }
         
