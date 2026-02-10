@@ -82,7 +82,7 @@ def service_provider_config():
     """SCIM Service Provider Configuration endpoint."""
     base_url = get_base_url()
     
-    return flask.jsonify(
+    response = flask.jsonify(
         {
             "schemas": ["urn:ietf:params:scim:schemas:core:2.0:ServiceProviderConfig"],
             "patch": {"supported": True},
@@ -104,6 +104,8 @@ def service_provider_config():
             },
         }
     )
+    response.headers["Content-Type"] = "application/scim+json"
+    return response
 
 
 @scim_bp.route("/ResourceTypes", methods=["GET"])
@@ -163,13 +165,15 @@ def resource_types():
         },
     ]
     
-    return flask.jsonify(
+    response = flask.jsonify(
         {
             "schemas": ["urn:ietf:params:scim:api:messages:2.0:ListResponse"],
             "totalResults": len(resource_types),
             "Resources": resource_types,
         }
     )
+    response.headers["Content-Type"] = "application/scim+json"
+    return response
 
 
 @scim_bp.route("/Schemas", methods=["GET"])
@@ -327,13 +331,15 @@ def schemas():
         },
     ]
     
-    return flask.jsonify(
+    response = flask.jsonify(
         {
             "schemas": ["urn:ietf:params:scim:api:messages:2.0:ListResponse"],
             "totalResults": len(schemas_list),
             "Resources": schemas_list,
         }
     )
+    response.headers["Content-Type"] = "application/scim+json"
+    return response
 
 
 @scim_bp.route("/Schemas/<schema_id>", methods=["GET"])
@@ -391,8 +397,10 @@ def list_users():
     resources = [UserSCIMSerializer.to_scim(user) for user in users]
     
     # Build response
-    response = build_list_response(resources, total_results, start_index, len(resources))
-    return flask.jsonify(response)
+    response_data = build_list_response(resources, total_results, start_index, len(resources))
+    response = flask.jsonify(response_data)
+    response.headers["Content-Type"] = "application/scim+json"
+    return response
 
 
 @scim_bp.route("/Users/<scim_id>", methods=["GET"])
@@ -835,8 +843,10 @@ def list_groups():
     resources = [GroupSCIMSerializer.to_scim(group, include_members=False, include_permissions=False) for group in groups]
     
     # Build response
-    response = build_list_response(resources, total_results, start_index, len(resources))
-    return flask.jsonify(response)
+    response_data = build_list_response(resources, total_results, start_index, len(resources))
+    response = flask.jsonify(response_data)
+    response.headers["Content-Type"] = "application/scim+json"
+    return response
 
 
 @scim_bp.route("/Groups/<scim_id>", methods=["GET"])
@@ -1482,8 +1492,10 @@ def list_datasets():
     resources = [DatasetSCIMSerializer.to_scim(dataset) for dataset in datasets]
     
     # Build response
-    response = build_list_response(resources, total_results, start_index, len(resources))
-    return flask.jsonify(response)
+    response_data = build_list_response(resources, total_results, start_index, len(resources))
+    response = flask.jsonify(response_data)
+    response.headers["Content-Type"] = "application/scim+json"
+    return response
 
 
 @scim_bp.route("/Datasets/<scim_id>", methods=["GET"])
