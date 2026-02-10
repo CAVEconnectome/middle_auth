@@ -11,39 +11,9 @@ from sqlalchemy import and_, or_, not_
 from sqlalchemy.orm import Query
 
 import logging
-import threading
 
 from scim2_filter_parser.lexer import SCIMLexer
 from scim2_filter_parser.parser import SCIMParser
-
-
-# Create module-level lexer and parser instances (singleton pattern)
-# SLY parsers need to be instantiated once and reused
-# Use a lock to ensure thread-safe initialization
-_lexer_instance = None
-_parser_instance = None
-_parser_lock = threading.Lock()
-
-
-def _get_lexer():
-    """Get or create the lexer instance (thread-safe)."""
-    global _lexer_instance
-    if _lexer_instance is None:
-        with _parser_lock:
-            if _lexer_instance is None:
-                _lexer_instance = SCIMLexer()
-    return _lexer_instance
-
-
-def _get_parser():
-    """Get or create the parser instance (thread-safe)."""
-    global _parser_instance
-    # Double-checked locking pattern for thread safety
-    if _parser_instance is None:
-        with _parser_lock:
-            if _parser_instance is None:
-                _parser_instance = SCIMParser()
-    return _parser_instance
 
 
 class SCIMFilterError(Exception):
@@ -266,9 +236,11 @@ class SCIMFilterParser:
         }
         
         try:
-            # Use lexer to tokenize the filter expression first, then parse the token stream
-            lexer = _get_lexer()
-            parser = _get_parser()
+            # Create new lexer and parser instances for each request (thread-safe)
+            # SLY lexers/parsers store mutable state during tokenize()/parse(), so
+            # we can't share instances across threads
+            lexer = SCIMLexer()
+            parser = SCIMParser()
             token_stream = lexer.tokenize(filter_expr)
             ast = parser.parse(token_stream)
             
@@ -309,9 +281,11 @@ class SCIMFilterParser:
         }
         
         try:
-            # Use lexer to tokenize the filter expression first, then parse the token stream
-            lexer = _get_lexer()
-            parser = _get_parser()
+            # Create new lexer and parser instances for each request (thread-safe)
+            # SLY lexers/parsers store mutable state during tokenize()/parse(), so
+            # we can't share instances across threads
+            lexer = SCIMLexer()
+            parser = SCIMParser()
             token_stream = lexer.tokenize(filter_expr)
             ast = parser.parse(token_stream)
             
@@ -352,9 +326,11 @@ class SCIMFilterParser:
         }
         
         try:
-            # Use lexer to tokenize the filter expression first, then parse the token stream
-            lexer = _get_lexer()
-            parser = _get_parser()
+            # Create new lexer and parser instances for each request (thread-safe)
+            # SLY lexers/parsers store mutable state during tokenize()/parse(), so
+            # we can't share instances across threads
+            lexer = SCIMLexer()
+            parser = SCIMParser()
             token_stream = lexer.tokenize(filter_expr)
             ast = parser.parse(token_stream)
             
