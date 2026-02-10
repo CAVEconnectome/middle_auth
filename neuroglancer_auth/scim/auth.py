@@ -14,6 +14,7 @@ import flask
 
 from middle_auth_client import auth_required
 
+from ..dec import AUTH_DISABLED
 from .utils import build_error_response
 
 
@@ -27,10 +28,30 @@ def scim_auth_required(f):
     
     This decorator intercepts authentication errors BEFORE auth_required processes them
     to ensure SCIM-compliant error formatting (RFC 7644 §3.12).
+    
+    For testing, set the AUTH_DISABLED environment variable to "true" to bypass
+    authentication and avoid Google OAuth redirects. When enabled, a mock admin user
+    is automatically set up in flask.g.auth_user (handled by checking AUTH_DISABLED
+    before calling auth_required).
     """
     
     @wraps(f)
     def wrapper(*args, **kwargs):
+        # Bypass authentication if AUTH_DISABLED is set (for testing)
+        # This consolidates auth bypass logic - AUTH_DISABLED works for all endpoints
+        if AUTH_DISABLED:
+            flask.g.auth_user = {
+                "id": 0,
+                "service_account": False,
+                "name": "AUTH_DISABLED",
+                "email": "AUTH_DISABLED@AUTH.DISABLED",
+                "admin": True,  # Admin required for SCIM access
+                "groups": [],
+                "permissions": {},
+            }
+            flask.g.auth_token = "AUTH_DISABLED"
+            return f(*args, **kwargs)
+        
         # Intercept Authorization header check BEFORE auth_required runs
         # This handles the case where auth_required returns 400 for malformed headers
         auth_header = flask.request.headers.get("authorization")
