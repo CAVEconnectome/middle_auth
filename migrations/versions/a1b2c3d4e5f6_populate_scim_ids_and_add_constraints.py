@@ -25,20 +25,20 @@ def upgrade():
     connection = op.get_bind()
     
     # Populate user scim_id
-    users = connection.execute(sa.text("SELECT id FROM user WHERE scim_id IS NULL"))
+    users = connection.execute(sa.text('SELECT id FROM "user" WHERE scim_id IS NULL'))
     for (user_id,) in users:
         scim_id = generate_scim_id(user_id, "User")
         connection.execute(
-            sa.text("UPDATE user SET scim_id = :scim_id WHERE id = :id"),
+            sa.text('UPDATE "user" SET scim_id = :scim_id WHERE id = :id'),
             {"scim_id": scim_id, "id": user_id}
         )
     
     # Populate group scim_id
-    groups = connection.execute(sa.text("SELECT id FROM group WHERE scim_id IS NULL"))
+    groups = connection.execute(sa.text('SELECT id FROM "group" WHERE scim_id IS NULL'))
     for (group_id,) in groups:
         scim_id = generate_scim_id(group_id, "Group")
         connection.execute(
-            sa.text("UPDATE group SET scim_id = :scim_id WHERE id = :id"),
+            sa.text('UPDATE "group" SET scim_id = :scim_id WHERE id = :id'),
             {"scim_id": scim_id, "id": group_id}
         )
     
