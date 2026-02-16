@@ -1279,7 +1279,14 @@ def _handle_group_remove(group, path, value, affected_users):
     if path.startswith("members[") or path == "members":
         # Remove member from group
         members_to_remove = []
-        if path == "members":
+        # RFC 7644: {"op": "remove", "path": "members"} (no value) = remove all members
+        if path == "members" and value is None:
+            # Remove all members from group
+            affected_users_list = UserGroup.get_users(group.id)
+            affected_users.update([u.id for u in affected_users_list])
+            UserGroup.query.filter_by(group_id=group.id).delete()
+            return
+        elif path == "members":
             # Value is array of members to remove
             if isinstance(value, list):
                 for member_item in value:
@@ -1287,19 +1294,11 @@ def _handle_group_remove(group, path, value, affected_users):
                     member_user = find_user_by_scim_identifier(scim_id=member_scim_id)
                     if member_user:
                         members_to_remove.append(member_user)
-        elif value is None:
-            # Remove all members from group
-            # Get affected users before deletion
-            affected_users_list = UserGroup.get_users(group.id)
-            affected_users.update([u.id for u in affected_users_list])
-            # Perform bulk delete
-            UserGroup.query.filter_by(group_id=group.id).delete()
-            return
         else:
             # Path contains filter expression like "members[value eq \"...\"]"
             # Extract identifier from path filter (RFC 7644: remove with filter has no value field)
             member_scim_id = extract_identifier_from_path_filter(path)
-            if not member_scim_id:
+            if not member_scim_id and value is not None:
                 # Fallback: try to get from value if provided (for backward compatibility)
                 member_scim_id = value.get("value") if isinstance(value, dict) else value
             

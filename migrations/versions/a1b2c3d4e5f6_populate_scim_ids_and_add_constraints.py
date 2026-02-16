@@ -52,12 +52,13 @@ def upgrade():
         )
     
     # Create indexes after populating data (ensures uniqueness)
-    op.create_index("ix_user_scim_id", "user", ["scim_id"], unique=True)
-    op.create_index("ix_user_external_id", "user", ["external_id"])
-    op.create_index("ix_group_scim_id", "group", ["scim_id"], unique=True)
-    op.create_index("ix_group_external_id", "group", ["external_id"])
-    op.create_index("ix_dataset_scim_id", "dataset", ["scim_id"], unique=True)
-    op.create_index("ix_dataset_external_id", "dataset", ["external_id"])
+    # if_not_exists=True makes migration idempotent (handles volume reuse, partial runs)
+    op.create_index("ix_user_scim_id", "user", ["scim_id"], unique=True, if_not_exists=True)
+    op.create_index("ix_user_external_id", "user", ["external_id"], if_not_exists=True)
+    op.create_index("ix_group_scim_id", "group", ["scim_id"], unique=True, if_not_exists=True)
+    op.create_index("ix_group_external_id", "group", ["external_id"], if_not_exists=True)
+    op.create_index("ix_dataset_scim_id", "dataset", ["scim_id"], unique=True, if_not_exists=True)
+    op.create_index("ix_dataset_external_id", "dataset", ["external_id"], if_not_exists=True)
     
     # Make scim_id columns NOT NULL after populating all records
     # Note: external_id remains nullable as it's optional
@@ -72,13 +73,13 @@ def downgrade():
     #op.alter_column("group", "scim_id", nullable=True)
     #op.alter_column("user", "scim_id", nullable=True)
     
-    # Remove indexes
-    op.drop_index("ix_dataset_external_id", table_name="dataset")
-    op.drop_index("ix_dataset_scim_id", table_name="dataset")
-    op.drop_index("ix_group_external_id", table_name="group")
-    op.drop_index("ix_group_scim_id", table_name="group")
-    op.drop_index("ix_user_external_id", table_name="user")
-    op.drop_index("ix_user_scim_id", table_name="user")
+    # Remove indexes (if_exists=True for idempotent downgrade)
+    op.drop_index("ix_dataset_external_id", table_name="dataset", if_exists=True)
+    op.drop_index("ix_dataset_scim_id", table_name="dataset", if_exists=True)
+    op.drop_index("ix_group_external_id", table_name="group", if_exists=True)
+    op.drop_index("ix_group_scim_id", table_name="group", if_exists=True)
+    op.drop_index("ix_user_external_id", table_name="user", if_exists=True)
+    op.drop_index("ix_user_scim_id", table_name="user", if_exists=True)
     
     # Note: We don't clear scim_id values in downgrade - they remain in the database
     # but become nullable again

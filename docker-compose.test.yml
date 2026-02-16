@@ -1,0 +1,108 @@
+
+
+services:
+  # PostgreSQL database for testing
+  postgres:
+    image: postgres:15-alpine
+    container_name: scim-test-postgres
+    environment:
+      POSTGRES_DB: scim_test
+      POSTGRES_USER: scim_test
+      POSTGRES_PASSWORD: scim_test_password
+      PGDATA: /var/lib/postgresql/data/pgdata
+    volumes:
+      - postgres_test_data:/var/lib/postgresql/data
+    ports:
+      - "5433:5432"  # Use 5433 to avoid conflicts with local postgres
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U scim_test -d scim_test"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    networks:
+      - scim-test-network
+
+  # Redis for caching
+  redis:
+    image: redis:7-alpine
+    container_name: scim-test-redis
+    ports:
+      - "6380:6379"  # Use 6380 to avoid conflicts with local redis
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+    networks:
+      - scim-test-network
+
+  # SCIM API server
+  scim-server:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: scim-test-server
+    environment:
+      # Flask config file path
+      AUTH_CONFIG_SETTINGS: /app/test_config.py
+      # Database
+      SQLALCHEMY_DATABASE_URI: postgresql://scim_test:scim_test_password@postgres:5432/scim_test
+      # Redis
+      REDISHOST: redis
+      REDISPORT: 6379
+      # SCIM
+      SCIM_ENABLED: "true"
+      SCIM_BASE_URL: http://localhost:5001/v2
+      # Flask
+      FLASK_APP: run.py
+      FLASK_ENV: testing
+      # Disable sticky auth for testing
+      STICKY_AUTH: "false"
+      AUTH_DISABLED: "true"
+      AUTH_OAUTH_SECRET: /app/client_secrets.json
+    ports:
+      - "5001:80"  # uwsgi-nginx runs on port 80, mapped to 5001 to avoid conflict with AirPlay
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    volumes:
+      - ./test_config.py:/app/test_config.py:ro
+      - ./prestart.sh:/app/prestart.sh
+    command: /bin/bash -c "/bin/bash /app/prestart.sh && /start.sh"
+    networks:
+      - scim-test-network
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost/auth/version || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 40s
+
+  # Test runner (uses Dockerfile.test with pytest)
+  test-runner:
+    build:
+      context: .
+      dockerfile: Dockerfile.test
+    container_name: scim-test-runner
+    environment:
+      SCIM_BASE_URL: http://scim-server/auth/scim/v2
+      SCIM_TEST_TOKEN: "not_needed"
+      PYTHONUNBUFFERED: 1
+    depends_on:
+      scim-server:
+        condition: service_healthy
+    volumes:
+      - ./tests:/app/tests:ro
+    networks:
+      - scim-test-network
+    command: pytest tests/test_scim_integration.py -v
+
+volumes:
+  postgres_test_data:
+    driver: local
+
+networks:
+  scim-test-network:
+    driver: bridge
