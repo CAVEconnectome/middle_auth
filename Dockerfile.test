@@ -1,0 +1,15 @@
+# Test image: integration tests only need pytest + requests (HTTP client).
+# Tests hit the SCIM API over HTTP; no app or database deps required.
+FROM python:3.11-slim
+
+WORKDIR /app
+
+# Install test dependencies only (no psycopg2/build tools needed)
+COPY requirements-test.txt ./
+RUN pip install --no-cache-dir -r requirements-test.txt
+
+# Copy tests (mounted at runtime; COPY for standalone build)
+COPY tests/ ./tests/
+
+# Default: run pytest
+CMD ["pytest", "tests/", "-v"]

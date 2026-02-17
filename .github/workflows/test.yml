@@ -1,0 +1,107 @@
+name: Test
+
+on:
+  push:
+    branches: [main, master, scim]
+  pull_request:
+    branches: [main, master, scim]
+
+jobs:
+  test:
+    name: SCIM integration tests
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:15-alpine
+        env:
+          POSTGRES_DB: scim_test
+          POSTGRES_USER: scim_test
+          POSTGRES_PASSWORD: scim_test_password
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Cache pip dependencies
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/pip
+          key: ${{ runner.os }}-pip-${{ hashFiles('requirements.txt', 'requirements-test.txt', 'setup.py', 'pyproject.toml') }}
+          restore-keys: |
+            ${{ runner.os }}-pip-
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install -r requirements-test.txt
+          pip install .
+
+      - name: Create client secrets for testing
+        run: |
+          mkdir -p .secrets
+          echo '{"web":{"client_id":"test.apps.googleusercontent.com","client_secret":"test","redirect_uris":[]}}' > .secrets/client_secrets.json
+
+      - name: Run migrations
+        env:
+          AUTH_CONFIG_SETTINGS: test_config.py
+          SQLALCHEMY_DATABASE_URI: postgresql://scim_test:scim_test_password@localhost:5432/scim_test
+          REDISHOST: localhost
+          REDISPORT: 6379
+          SECRET_KEY: test-secret-key
+          FLASK_APP: run.py
+          AUTH_OAUTH_SECRET: ${{ github.workspace }}/.secrets/client_secrets.json
+        run: |
+          flask db upgrade
+          flask initialize
+
+      - name: Run application and tests
+        env:
+          AUTH_CONFIG_SETTINGS: test_config.py
+          SQLALCHEMY_DATABASE_URI: postgresql://scim_test:scim_test_password@localhost:5432/scim_test
+          REDISHOST: localhost
+          REDISPORT: 6379
+          SECRET_KEY: test-secret-key
+          FLASK_APP: run.py
+          FLASK_ENV: testing
+          STICKY_AUTH: "false"
+          AUTH_DISABLED: "true"
+          SCIM_ENABLED: "true"
+          SCIM_BASE_URL: http://localhost:5000/auth/scim/v2
+          SCIM_TEST_TOKEN: not_needed
+          AUTH_OAUTH_SECRET: ${{ github.workspace }}/.secrets/client_secrets.json
+        run: |
+          flask run --host=0.0.0.0 --port=5000 &
+          for i in $(seq 1 30); do
+            if curl -sf http://localhost:5000/auth/version > /dev/null 2>&1; then
+              echo "Application ready"
+              break
+            fi
+            echo "Waiting for application... ($i/30)"
+            sleep 2
+          done
+          curl -sf http://localhost:5000/auth/version > /dev/null || (echo "Application failed to start" && exit 1)
+          pytest tests/test_scim_integration.py -v

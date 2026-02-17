@@ -1,0 +1,17 @@
+# Docker ignore for test builds
+.git
+.gitignore
+*.md
+!README.md
+.env
+.env.*
+*.pyc
+__pycache__
+.pytest_cache
+.coverage
+htmlcov
+test-reports
+*.log
+.DS_Store
+.vscode
+.idea

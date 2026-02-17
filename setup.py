@@ -30,8 +30,15 @@ setup(
     author="Chris Jordan",
     author_email="chris@eyewire.org",
     url="https://github.com/seung-lab/neuroglancer-auth",
-    packages=find_packages("neuroglancer_auth"),
-    package_dir={"": "neuroglancer_auth"},
+    packages=find_packages(),
     include_package_data=True,
     install_requires=required,
+    extras_require={
+        "test": [
+            "pytest>=7.0",
+            "pytest-order>=1.0",
+            "requests>=2.28",
+        ],
+    },
+    tests_require=["pytest>=7.0", "pytest-order>=1.0", "requests>=2.28"],
 )
