@@ -7,9 +7,18 @@ WORKDIR /app
 # Install test dependencies only (no psycopg2/build tools needed)
 COPY requirements-test.txt ./
 RUN pip install --no-cache-dir -r requirements-test.txt
+RUN playwright install-deps
+RUN playwright install chromium
 
 # Copy tests (mounted at runtime; COPY for standalone build)
 COPY tests/ ./tests/
 
+COPY neuroglancer_auth/ ./neuroglancer_auth/
+
+# RUN touch __init__.py
+
 # Default: run pytest
-CMD ["pytest", "tests/", "-v"]
+# CMD ["pytest", "tests/base/", "-v"]
+# CMD ["pytest", "tests/base/test_group.py", "-v"]
+
+CMD ["pytest", "tests", "-v"]

@@ -3,8 +3,10 @@ Pytest configuration and fixtures for SCIM integration tests.
 """
 
 import os
+
 import pytest
 import requests
+from tests.test_utils import get_token_for_user
 
 
 class SCIMClient:
@@ -13,8 +15,11 @@ class SCIMClient:
     def __init__(self, base_url: str, token: str):
         self.base_url = base_url.rstrip("/")
         self.token = token
+        auth_value = token.strip() if token else ""
+        if auth_value and not auth_value.lower().startswith("bearer "):
+            auth_value = f"Bearer {auth_value}"
         self.headers = {
-            "Authorization": token,
+            "Authorization": auth_value,
             "Content-Type": "application/scim+json",
         }
         self.created_users = []
@@ -50,16 +55,26 @@ class SCIMClient:
 @pytest.fixture(scope="module")
 def scim_base_url():
     """SCIM API base URL from environment."""
-    return os.environ.get("SCIM_BASE_URL", "http://localhost:5000/v2")
+    raw = os.environ.get("SCIM_BASE_URL", "http://localhost:5000/auth").rstrip("/")
+    # Allow either:
+    # - SCIM_BASE_URL=https://host/auth  -> append /scim/v2
+    # - SCIM_BASE_URL=https://host/auth/scim/v2 -> use as-is
+    if raw.endswith("/scim/v2"):
+        return raw
+    return raw + "/scim/v2"
 
 
 @pytest.fixture(scope="module")
 def scim_token():
     """SCIM test token from environment. Skips tests if not set."""
-    token = os.environ.get("SCIM_TEST_TOKEN", "")
-    if not token:
-        pytest.skip("SCIM_TEST_TOKEN environment variable not set")
-    return token
+    token = (os.environ.get("SCIM_TEST_TOKEN") or "").strip()
+
+    # If a real token is provided, use it.
+    if token and token.lower() not in {"not_needed", "none", "false"}:
+        return token
+
+    # Otherwise, use the shared default admin token source.
+    return get_token_for_user("default@admin.local")
 
 
 @pytest.fixture(scope="module")

@@ -37,7 +37,8 @@ SCIM_BASE_URL = os.environ.get("SCIM_BASE_URL", "http://localhost:5000/v2")
 STICKY_AUTH = os.environ.get("STICKY_AUTH", "false").lower() == "true"
 
 # Default admins (optional - can be empty for testing)
-DEFAULT_ADMINS = []
+DEFAULT_ADMINS = [["default@admin.local", 'Default Admin', 'default']]
+# AUTH_DEFAULT_ADMINS=[['forrestc@alleninstitute.org', 'Forrest Collman', 'allen']]
 
 # OAuth configuration (optional for SCIM testing)
 # These can be dummy values if OAuth endpoints aren't being tested
