@@ -419,22 +419,6 @@ def get_user(scim_id):
     return build_error_response(404, "NOT_FOUND", f"User {scim_id} not found")
 
 
-def _sanitize_pi_field(pi_value):
-    """
-    Sanitize pi field value to prevent IntegrityError.
-    
-    The pi column is nullable=False with server_default="", so passing None
-    would override the server default and cause an IntegrityError.
-    
-    Args:
-        pi_value: The pi value from user_data (can be None, empty string, or a string)
-        
-    Returns:
-        Empty string if pi_value is None, otherwise returns pi_value as-is
-    """
-    return "" if pi_value is None else pi_value
-
-
 @scim_bp.route("/Users", methods=["POST"])
 @scim_auth_required
 def create_user():
@@ -483,7 +467,7 @@ def create_user():
         user = create_user_with_scim(
             email=user_data["email"],
             name=user_data.get("name", ""),
-            pi=_sanitize_pi_field(user_data.get("pi")),
+            pi=user_data.get("pi"),
             admin=user_data.get("admin", False),
             gdpr_consent=user_data.get("gdpr_consent", False),
             group_names=["default"],
@@ -558,10 +542,7 @@ def replace_user(scim_id):
         user.external_id = user_data["external_id"]
     
     # Update user (remove external_id from update_data as it's handled separately)
-    # Also sanitize pi field to prevent IntegrityError if it's None
     update_data = {k: v for k, v in user_data.items() if k != "external_id"}
-    if "pi" in update_data:
-        update_data["pi"] = _sanitize_pi_field(update_data["pi"])
     
     try:
         # Apply all updates atomically
@@ -637,9 +618,6 @@ def _handle_user_replace(user, path, value):
     elif isinstance(value, dict):
         # Direct value update
         user_data = UserSCIMSerializer.from_scim({"schemas": [], **value})
-        # Sanitize pi field to prevent IntegrityError if it's None
-        if "pi" in user_data:
-            user_data["pi"] = _sanitize_pi_field(user_data["pi"])
         # Check for duplicate email before updating
         if "email" in user_data:
             existing_user = User.get_by_email(user_data["email"])

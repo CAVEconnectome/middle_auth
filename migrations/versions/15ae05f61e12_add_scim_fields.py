@@ -1,7 +1,7 @@
 """add scim fields
 
 Revision ID: 15ae05f61e12
-Revises: 9451e1b711f4
+Revises: 8d9c4f2a1b7e
 Create Date: 2024-01-01 00:00:00.000000
 
 """
@@ -11,7 +11,7 @@ from alembic import op
 
 # revision identifiers, used by Alembic.
 revision = "15ae05f61e12"
-down_revision = "9451e1b711f4"
+down_revision = "8d9c4f2a1b7e"
 branch_labels = None
 depends_on = None
 

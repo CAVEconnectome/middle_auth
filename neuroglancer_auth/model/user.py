@@ -21,7 +21,7 @@ class User(db.Model):
     )  # public + affiliation
     admin = db.Column(db.Boolean, server_default="0", nullable=False)
     gdpr_consent = db.Column(db.Boolean, server_default="0", nullable=False)
-    pi = db.Column(db.String(80), server_default="", nullable=False)
+    pi = db.Column(db.String(80), server_default="", nullable=True)
     created = db.Column(db.DateTime, server_default=func.now())
     parent_id = db.Column(
         "parent_id", db.Integer, db.ForeignKey("user.id"), nullable=True
