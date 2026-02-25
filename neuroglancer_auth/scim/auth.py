@@ -14,8 +14,10 @@ import flask
 
 from middle_auth_client import auth_required
 
-from ..dec import AUTH_DISABLED
 from .utils import build_error_response
+import os
+
+AUTH_DISABLED = os.environ.get("AUTH_DISABLED", "false") == "true"
 
 
 def scim_auth_required(f):

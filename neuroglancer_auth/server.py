@@ -84,8 +84,7 @@ user_settings_bp = flask.Blueprint(
 from .scim import scim_bp
 
 
-blueprints = [version_bp, api_v1_bp, admin_site_bp]
-blueprints.append(scim_bp)
+blueprints = [version_bp, api_v1_bp, admin_site_bp, scim_bp]
 
 sticky_blueprints = [
     version_bp,
@@ -93,8 +92,8 @@ sticky_blueprints = [
     admin_site_bp,
     user_settings_bp,
     authorize_bp,
+    scim_bp,
 ]
-sticky_blueprints.append(scim_bp)
 
 CLIENT_SECRETS_FILE = os.environ["AUTH_OAUTH_SECRET"]
 SCOPES = [
@@ -102,20 +101,6 @@ SCOPES = [
     "https://www.googleapis.com/auth/userinfo.email",
     "https://www.googleapis.com/auth/userinfo.profile",
 ]
-
-
-def make_api_error(http_status, api_code, msg=None, data=None):
-    res = {"error": api_code}
-
-    if msg is not None:
-        res["message"] = msg
-
-    if data is not None:
-        res["data"] = data
-
-    response = flask.jsonify(res)
-    response.status_code = http_status
-    return response
 
 
 def requires_dataset_admin(f):
