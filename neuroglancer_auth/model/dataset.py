@@ -1,4 +1,5 @@
 from .base import db
+import sqlalchemy
 
 
 class Dataset(db.Model):
@@ -32,14 +33,24 @@ class Dataset(db.Model):
 
     @staticmethod
     def add(name, tos_id, scim_id=None, external_id=None):
-        dataset = Dataset(name=name, tos_id=tos_id, scim_id=scim_id, external_id=external_id)
+        next_dataset_id = None
+        if not scim_id:
+            from ..scim.utils import generate_scim_id
+
+            next_dataset_id = db.session.scalar(
+                sqlalchemy.Sequence("dataset_id_seq").next_value()
+            )
+            scim_id = generate_scim_id(next_dataset_id, "Dataset")
+
+        dataset = Dataset(
+            id=next_dataset_id,
+            name=name,
+            tos_id=tos_id,
+            scim_id=scim_id,
+            external_id=external_id,
+        )
         db.session.add(dataset)
         db.session.flush()  # get inserted id
-        
-        # Auto-generate sci_id if not provided
-        if not dataset.scim_id:
-            from ..scim.utils import generate_scim_id
-            dataset.scim_id = generate_scim_id(dataset.id, "Dataset")
         
         db.session.commit()
         return dataset

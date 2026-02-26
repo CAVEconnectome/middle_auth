@@ -151,7 +151,17 @@ class User(db.Model):
         from .group import Group
         from .user_group import UserGroup
 
+        next_user_id = None
+        if not scim_id:
+            from ..scim.utils import generate_scim_id
+
+            next_user_id = db.session.scalar(
+                sqlalchemy.Sequence("user_id_seq").next_value()
+            )
+            scim_id = generate_scim_id(next_user_id, "User")
+
         user = User(
+            id=next_user_id,
             name=name,
             email=email,
             admin=admin,
@@ -163,11 +173,6 @@ class User(db.Model):
         )
         db.session.add(user)
         db.session.flush()  # get inserted id
-        
-        # Auto-generate scim_id if not provided
-        if not user.scim_id:
-            from ..scim.utils import generate_scim_id
-            user.scim_id = generate_scim_id(user.id, "User")
 
         groups = Group.query.filter(Group.name.in_(group_names)).all()
 
