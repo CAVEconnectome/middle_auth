@@ -1,0 +1,208 @@
+
+
+services:
+  # PostgreSQL database for testing
+  postgres:
+    image: postgres:15-alpine
+    container_name: test-postgres
+    environment:
+      POSTGRES_DB: scim_test
+      POSTGRES_USER: scim_test
+      POSTGRES_PASSWORD: scim_test_password
+      PGDATA: /var/lib/postgresql/data/pgdata
+    volumes:
+      - postgres_test_data:/var/lib/postgresql/data
+    ports:
+      - "5433:5432"  # Use 5433 to avoid conflicts with local postgres
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U scim_test -d scim_test"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    networks:
+      - test-network
+
+  # Redis for caching
+  redis:
+    image: redis:7-alpine
+    container_name: test-redis
+    ports:
+      - "6380:6379"  # Use 6380 to avoid conflicts with local redis
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+    networks:
+      - test-network
+
+  # MITM proxy to mock Google userinfo requests
+  mitmproxy:
+    image: mitmproxy/mitmproxy:10.3.0
+    container_name: test-mitmproxy
+    ports:
+      - "8081:8081"
+    volumes:
+      - ./tests/oauth/mitmproxy_addon.py:/home/mitmproxy/mitmproxy_addon.py:ro
+      - mitmproxy_certs:/mitmproxy-certs
+      - oauth_test_shared:/oauth-shared
+    command: >-
+      /bin/sh -c "mitmdump
+      --mode regular
+      --listen-host 0.0.0.0
+      --listen-port 8081
+      --set confdir=/mitmproxy-certs
+      -s /home/mitmproxy/mitmproxy_addon.py
+      & while [ ! -s /mitmproxy-certs/mitmproxy-ca.pem ]; do sleep 1; done; chmod 644 /mitmproxy-certs/mitmproxy-ca.pem; wait"
+    healthcheck:
+      test:
+        ["CMD-SHELL", "python -c 'import os, socket; s=socket.socket(); s.settimeout(1); s.connect((\"127.0.0.1\", 8081)); s.close(); assert os.path.getsize(\"/mitmproxy-certs/mitmproxy-ca.pem\") > 0'"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+    networks:
+      - test-network
+
+  # Middle Auth server
+  middle-auth-server:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: middle-auth-test-server
+    environment:
+      # Flask config file path
+      AUTH_CONFIG_SETTINGS: /app/test_config.py
+      # url
+      AUTH_URL: middle-auth-server-ssl/auth
+      # Database
+      SQLALCHEMY_DATABASE_URI: postgresql://scim_test:scim_test_password@test-postgres:5432/scim_test
+      # Redis
+      REDISHOST: test-redis
+      REDISPORT: 6379
+      # SCIM
+      SCIM_ENABLED: "true"
+      SCIM_BASE_URL: http://localhost:5001/v2
+      # Flask
+      FLASK_APP: run.py
+      FLASK_ENV: testing
+      # Enable sticky auth for authorize flow tests
+      STICKY_AUTH: "true"
+      # AUTH_DISABLED: "false"
+      AUTH_OAUTH_SECRET: /app/tests/oauth/client_secrets.json
+      OAUTHLIB_INSECURE_TRANSPORT: "1"
+      HTTP_PROXY: http://test-mitmproxy:8081
+      HTTPS_PROXY: http://test-mitmproxy:8081
+      NO_PROXY: localhost,127.0.0.1,middle-auth-server,middle-auth-server-ssl,test-redis,test-postgres
+      REQUESTS_CA_BUNDLE: /mitmproxy-certs/mitmproxy-ca.pem
+      SSL_CERT_FILE: /mitmproxy-certs/mitmproxy-ca.pem
+    ports:
+      - "5001:80"  # uwsgi-nginx runs on port 80, mapped to 5001 to avoid conflict with AirPlay
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      mitmproxy:
+        condition: service_healthy
+    volumes:
+      - ./test_config.py:/app/test_config.py:ro
+      - ./prestart.sh:/app/prestart.sh
+      - mitmproxy_certs:/mitmproxy-certs:ro
+    command: >-
+      /bin/bash -c "while [ ! -s /mitmproxy-certs/mitmproxy-ca.pem ]; do sleep 1; done;
+      python -c \"import certifi; from pathlib import Path; ca_path=Path('/mitmproxy-certs/mitmproxy-ca.pem'); bundle_path=Path(certifi.where()); ca_data=ca_path.read_text(); bundle_data=bundle_path.read_text(); bundle_path.write_text(bundle_data + '\\n' + ca_data) if ca_data not in bundle_data else None\";
+      /bin/bash /app/prestart.sh && /start.sh"
+    networks:
+      - test-network
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost/auth/version || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 40s
+
+  # TLS terminator for Middle Auth server using a self-signed cert
+  middle-auth-server-ssl:
+    image: nginx:1.27-alpine
+    container_name: middle-auth-test-server-ssl
+    depends_on:
+      middle-auth-server:
+        condition: service_healthy
+    command: >-
+      /bin/sh -ec 'apk add --no-cache openssl >/dev/null; mkdir -p /certs;
+      if [ -s /certs/middle-auth-server.crt ] && ! openssl x509 -in /certs/middle-auth-server.crt -noout -text 2>/dev/null | grep -q "DNS:middle-auth-server-ssl"; then rm -f /certs/middle-auth-server.crt /certs/middle-auth-server.key; fi;
+      if [ ! -s /certs/middle-auth-server.key ] || [ ! -s /certs/middle-auth-server.crt ]; then
+        openssl req -x509 -nodes -newkey rsa:2048 -days 365 -sha256 \
+          -keyout /certs/middle-auth-server.key \
+          -out /certs/middle-auth-server.crt \
+          -subj "/CN=middle-auth-server-ssl" \
+          -addext "subjectAltName=DNS:middle-auth-server-ssl";
+      fi;
+      exec nginx -g "daemon off;"'
+    volumes:
+      - ssl_certs:/certs
+      - ./nginx-ssl.test.conf:/etc/nginx/conf.d/default.conf:ro
+    ports:
+      - "5443:443"
+    healthcheck:
+      test: ["CMD-SHELL", "curl -kf https://localhost/auth/version || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+    networks:
+      - test-network
+
+  # Test runner (uses Dockerfile.test with pytest)
+  test-runner:
+    build:
+      context: .
+      dockerfile: Dockerfile.test
+    container_name: test-runner
+    environment:
+      SQLALCHEMY_DATABASE_URI: postgresql://scim_test:scim_test_password@test-postgres:5432/scim_test
+      MIDDLE_AUTH_BASE_URL: https://middle-auth-server-ssl/auth
+      SCIM_BASE_URL: https://middle-auth-server-ssl/auth/scim/v2
+      PYTHONUNBUFFERED: 1
+      # Redis
+      REDISHOST: test-redis
+      REDISPORT: 6379
+      # HTTP_PROXY: http://test-mitmproxy:8081
+      HTTPS_PROXY: http://test-mitmproxy:8081
+      NO_PROXY: localhost,127.0.0.1,middle-auth-server,middle-auth-server-ssl,test-redis,test-postgres
+      REQUESTS_CA_BUNDLE: /ssl-certs/middle-auth-server.crt
+      SSL_CERT_FILE: /ssl-certs/middle-auth-server.crt
+      OAUTH_TEST_EMAIL_FILE: /oauth-shared/test_email.txt
+
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      mitmproxy:
+        condition: service_healthy
+      middle-auth-server:
+        condition: service_healthy
+      middle-auth-server-ssl:
+        condition: service_healthy
+    volumes:
+      - ./tests:/app/tests:ro
+      - mitmproxy_certs:/mitmproxy-certs:ro
+      - ssl_certs:/ssl-certs:ro
+      - oauth_test_shared:/oauth-shared
+    networks:
+      - test-network
+
+volumes:
+  postgres_test_data:
+    driver: local
+  mitmproxy_certs:
+    driver: local
+  ssl_certs:
+    driver: local
+  oauth_test_shared:
+    driver: local
+
+networks:
+  test-network:
+    driver: bridge

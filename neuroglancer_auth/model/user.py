@@ -21,12 +21,15 @@ class User(db.Model):
     )  # public + affiliation
     admin = db.Column(db.Boolean, server_default="0", nullable=False)
     gdpr_consent = db.Column(db.Boolean, server_default="0", nullable=False)
-    pi = db.Column(db.String(80), server_default="", nullable=False)
+    pi = db.Column(db.String(80), server_default="", nullable=True)
     created = db.Column(db.DateTime, server_default=func.now())
     parent_id = db.Column(
         "parent_id", db.Integer, db.ForeignKey("user.id"), nullable=True
     )
     read_only = db.Column(db.Boolean, server_default="0", nullable=False)
+    # SCIM fields
+    scim_id = db.Column(db.String(36), unique=True, nullable=True, index=True)
+    external_id = db.Column(db.String(255), nullable=True, index=True)
 
     def __repr__(self):
         return self.name
@@ -142,18 +145,31 @@ class User(db.Model):
 
     @staticmethod
     def create_account(
-        email, name, pi, admin=False, gdpr_consent=False, group_names=[], parent_id=None
+        email, name, pi, admin=False, gdpr_consent=False, group_names=[], parent_id=None,
+        scim_id=None, external_id=None
     ):
         from .group import Group
         from .user_group import UserGroup
 
+        next_user_id = None
+        if not scim_id:
+            from ..scim.utils import generate_scim_id
+
+            next_user_id = db.session.scalar(
+                sqlalchemy.Sequence("user_id_seq").next_value()
+            )
+            scim_id = generate_scim_id(next_user_id, "User")
+
         user = User(
+            id=next_user_id,
             name=name,
             email=email,
             admin=admin,
             pi=pi,
             gdpr_consent=gdpr_consent,
             parent_id=parent_id,
+            scim_id=scim_id,
+            external_id=external_id,
         )
         db.session.add(user)
         db.session.flush()  # get inserted id
@@ -271,7 +287,7 @@ class User(db.Model):
         )
 
     def update(self, data):
-        user_fields = ["admin", "name", "pi", "gdpr_consent", "read_only"]
+        user_fields = ["admin", "name", "pi", "gdpr_consent", "read_only", "email"]
 
         for field in user_fields:
             if field in data:

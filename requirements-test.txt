@@ -1,0 +1,5 @@
+# Test dependencies (in addition to production requirements)
+pytest>=7.0
+pytest-order>=1.0
+requests>=2.28
+pytest-playwright>=0.4
