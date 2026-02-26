@@ -2,7 +2,7 @@
 SCIM serializers for converting between SCIM JSON and internal models.
 """
 
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict
 
 from ..model.dataset import Dataset
 from ..model.group import Group
@@ -185,7 +185,7 @@ class GroupSCIMSerializer:
             "displayName": group.name,
             "meta": {
                 "resourceType": "Group",
-                "created": format_datetime(None),  # TODO: track created date
+                "created": format_datetime(None),  # TODO: groups have no created/lastmodified
                 "lastModified": format_datetime(None),
                 "location": f"{base_url}/v2/Groups/{scim_id}",
                 "version": f'W/"scim-{group.id}"',
@@ -292,7 +292,7 @@ class DatasetSCIMSerializer:
             ],
             "meta": {
                 "resourceType": "Dataset",
-                "created": format_datetime(None),  # TODO: track created date
+                "created": format_datetime(None),  # TODO: # TODO: datasets have no created/lastmodified
                 "lastModified": format_datetime(None),
                 "location": f"{base_url}/v2/Datasets/{scim_id}",
                 "version": f'W/"scim-{dataset.id}"',

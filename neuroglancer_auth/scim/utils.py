@@ -35,7 +35,9 @@ def generate_scim_id(internal_id: int, resource_type: str) -> str:
     return str(uuid.uuid5(SCIM_NAMESPACE, f"{resource_type}:{internal_id}"))
 
 
-def find_user_by_scim_identifier(scim_id: str = None, external_id: str = None):
+def find_user_by_scim_identifier(
+    scim_id: Optional[str] = None, external_id: Optional[str] = None
+):
     """
     Find User by SCIM identifier (scim_id or external_id).
     
@@ -65,7 +67,9 @@ def find_user_by_scim_identifier(scim_id: str = None, external_id: str = None):
     return None
 
 
-def find_group_by_scim_identifier(scim_id: str = None, external_id: str = None):
+def find_group_by_scim_identifier(
+    scim_id: Optional[str] = None, external_id: Optional[str] = None
+):
     """
     Find Group by SCIM identifier.
     
@@ -91,7 +95,9 @@ def find_group_by_scim_identifier(scim_id: str = None, external_id: str = None):
     return None
 
 
-def find_dataset_by_scim_identifier(scim_id: str = None, external_id: str = None):
+def find_dataset_by_scim_identifier(
+    scim_id: Optional[str] = None, external_id: Optional[str] = None
+):
     """Find Dataset by SCIM identifier."""
     from ..model.dataset import Dataset
     
@@ -112,7 +118,7 @@ def build_list_response(
     resources: List[Dict[str, Any]],
     total_results: int,
     start_index: int = 1,
-    count: int = None,
+    count: Optional[int] = None,
 ) -> Dict[str, Any]:
     """
     Build SCIM ListResponse format.
@@ -140,8 +146,8 @@ def build_list_response(
 
 def build_error_response(
     status: int,
-    scim_type: str = None,
-    detail: str = None,
+    scim_type: Optional[str] = None,
+    detail: Optional[str] = None,
 ) -> flask.Response:
     """
     Build SCIM Error response.

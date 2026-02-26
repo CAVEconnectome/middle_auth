@@ -6,6 +6,7 @@ Implements SCIM 2.0 endpoints for Users, Groups, and Datasets (custom resource t
 
 import re
 import os
+from typing import Optional
 import flask
 import sqlalchemy
 from ..model.dataset import Dataset
@@ -32,8 +33,6 @@ from .utils import (
     find_dataset_by_scim_identifier,
     find_group_by_scim_identifier,
     find_user_by_scim_identifier,
-    format_datetime,
-    generate_scim_id,
     get_base_url,
     parse_pagination_params,
     SCIMPaginationError,
@@ -45,7 +44,7 @@ URL_PREFIX = os.environ.get("URL_PREFIX", "auth")
 scim_bp = flask.Blueprint("scim_bp", __name__, url_prefix="/" + URL_PREFIX + "/scim/v2")
 
 
-def extract_identifier_from_path_filter(path: str) -> str:
+def extract_identifier_from_path_filter(path: str) -> Optional[str]:
     """
     Extract identifier from SCIM path filter expression.
     
@@ -641,15 +640,17 @@ def _handle_user_add(user, path, value):
             if isinstance(value, list):
                 for group_item in value:
                     group_scim_id = group_item.get("value") if isinstance(group_item, dict) else group_item
-                    group = find_group_by_scim_identifier(scim_id=group_scim_id)
-                    if group:
-                        groups_to_add.append(group)
+                    if group_scim_id:
+                        group = find_group_by_scim_identifier(scim_id=group_scim_id)
+                        if group:
+                            groups_to_add.append(group)
         else:
             # Single group in path like "groups[value eq \"...\"]" or direct value
             group_scim_id = value.get("value") if isinstance(value, dict) else value
-            group = find_group_by_scim_identifier(scim_id=group_scim_id)
-            if group:
-                groups_to_add.append(group)
+            if group_scim_id:
+                group = find_group_by_scim_identifier(scim_id=group_scim_id)
+                if group:
+                    groups_to_add.append(group)
         
         # Add all groups (check for duplicates first)
         for group in groups_to_add:
@@ -671,9 +672,10 @@ def _handle_user_remove(user, path, value):
             if isinstance(value, list):
                 for group_item in value:
                     group_scim_id = group_item.get("value") if isinstance(group_item, dict) else group_item
-                    group = find_group_by_scim_identifier(scim_id=group_scim_id)
-                    if group:
-                        groups_to_remove.append(group)
+                    if group_scim_id:
+                        group = find_group_by_scim_identifier(scim_id=group_scim_id)
+                        if group:
+                            groups_to_remove.append(group)
         else:
             # Path contains filter expression like "groups[value eq \"...\"]"
             # Extract identifier from path filter (RFC 7644: remove with filter has no value field)
@@ -894,6 +896,8 @@ def create_group():
         members = data.get("members", [])
         for member in members:
             member_scim_id = member.get("value")
+            if not member_scim_id:
+                continue
             member_user = find_user_by_scim_identifier(scim_id=member_scim_id)
             if member_user:
                 try:
@@ -911,6 +915,9 @@ def create_group():
             if isinstance(dp, dict):
                 dataset_scim_id = dp.get("datasetId")
                 permission_names = dp.get("permissions", [])
+
+                if not dataset_scim_id:
+                    continue
                 
                 dataset = find_dataset_by_scim_identifier(scim_id=dataset_scim_id)
                 if not dataset:
@@ -1003,6 +1010,8 @@ def replace_group(scim_id):
             members = data.get("members", [])
             for member in members:
                 member_scim_id = member.get("value")
+                if not member_scim_id:
+                    continue
                 member_user = find_user_by_scim_identifier(scim_id=member_scim_id)
                 if member_user:
                     # Check if already exists (shouldn't happen after delete, but check anyway)
@@ -1026,6 +1035,9 @@ def replace_group(scim_id):
                 if isinstance(dp, dict):
                     dataset_scim_id = dp.get("datasetId")
                     permission_names = dp.get("permissions", [])
+
+                    if not dataset_scim_id:
+                        continue
                     
                     dataset = find_dataset_by_scim_identifier(scim_id=dataset_scim_id)
                     if not dataset:
@@ -1098,6 +1110,9 @@ def _handle_group_replace(group, path, value):
                 if isinstance(dp, dict):
                     dataset_scim_id = dp.get("datasetId")
                     permission_names = dp.get("permissions", [])
+
+                    if not dataset_scim_id:
+                        continue
                     
                     dataset = find_dataset_by_scim_identifier(scim_id=dataset_scim_id)
                     if not dataset:
@@ -1124,6 +1139,9 @@ def _handle_group_replace(group, path, value):
         if isinstance(value, dict):
             dataset_scim_id = value.get("datasetId")
             permission_names = value.get("permissions", [])
+
+            if not dataset_scim_id:
+                return
             
             # Find dataset
             dataset = find_dataset_by_scim_identifier(scim_id=dataset_scim_id)
@@ -1165,15 +1183,17 @@ def _handle_group_add(group, path, value, affected_users):
             if isinstance(value, list):
                 for member_item in value:
                     member_scim_id = member_item.get("value") if isinstance(member_item, dict) else member_item
-                    member_user = find_user_by_scim_identifier(scim_id=member_scim_id)
-                    if member_user:
-                        members_to_add.append(member_user)
+                    if member_scim_id:
+                        member_user = find_user_by_scim_identifier(scim_id=member_scim_id)
+                        if member_user:
+                            members_to_add.append(member_user)
         else:
             # Single member
             member_scim_id = value.get("value") if isinstance(value, dict) else value
-            member_user = find_user_by_scim_identifier(scim_id=member_scim_id)
-            if member_user:
-                members_to_add.append(member_user)
+            if member_scim_id:
+                member_user = find_user_by_scim_identifier(scim_id=member_scim_id)
+                if member_user:
+                    members_to_add.append(member_user)
         
         # Add all members (check for duplicates first)
         for member_user in members_to_add:
@@ -1189,6 +1209,9 @@ def _handle_group_add(group, path, value, affected_users):
                 if isinstance(dp, dict):
                     dataset_scim_id = dp.get("datasetId")
                     permission_names = dp.get("permissions", [])
+
+                    if not dataset_scim_id:
+                        continue
                     
                     dataset = find_dataset_by_scim_identifier(scim_id=dataset_scim_id)
                     if not dataset:
@@ -1221,6 +1244,9 @@ def _handle_group_add(group, path, value, affected_users):
         if isinstance(value, dict):
             dataset_scim_id = value.get("datasetId")
             permission_names = value.get("permissions", [])
+
+            if not dataset_scim_id:
+                return
             
             # Find dataset
             dataset = find_dataset_by_scim_identifier(scim_id=dataset_scim_id)
@@ -1269,9 +1295,10 @@ def _handle_group_remove(group, path, value, affected_users):
             if isinstance(value, list):
                 for member_item in value:
                     member_scim_id = member_item.get("value") if isinstance(member_item, dict) else member_item
-                    member_user = find_user_by_scim_identifier(scim_id=member_scim_id)
-                    if member_user:
-                        members_to_remove.append(member_user)
+                    if member_scim_id:
+                        member_user = find_user_by_scim_identifier(scim_id=member_scim_id)
+                        if member_user:
+                            members_to_remove.append(member_user)
         else:
             # Path contains filter expression like "members[value eq \"...\"]"
             # Extract identifier from path filter (RFC 7644: remove with filter has no value field)
@@ -1298,6 +1325,9 @@ def _handle_group_remove(group, path, value, affected_users):
         if isinstance(value, dict):
             dataset_scim_id = value.get("datasetId")
             permission_names = value.get("permissions", [])
+
+            if not dataset_scim_id:
+                return
             
             # Find dataset
             dataset = find_dataset_by_scim_identifier(scim_id=dataset_scim_id)
@@ -1768,8 +1798,7 @@ def _handle_dataset_add(dataset, path, value):
 
 def _handle_dataset_remove(dataset, path, value):
     """Handle remove operation for Dataset."""
-    from ..model.base import db
-    
+
     if path.startswith("serviceTables[") or path == "serviceTables":
         # Remove service table mapping
         if path == "serviceTables":
