@@ -1,24 +1,20 @@
-# Test image: integration tests only need pytest + requests (HTTP client).
-# Tests hit the SCIM API over HTTP; no app or database deps required.
-FROM python:3.11-slim
+# Test image for integration tests.
+FROM mcr.microsoft.com/playwright/python:v1.58.0-jammy
 
 WORKDIR /app
 
-# Install test dependencies only (no psycopg2/build tools needed)
+ENV PYTHONDONTWRITEBYTECODE=1 \
+	PYTHONUNBUFFERED=1 \
+	PIP_DISABLE_PIP_VERSION_CHECK=1
+
+# Install test dependencies.
 COPY requirements-test.txt ./
 RUN pip install --no-cache-dir -r requirements-test.txt
-RUN playwright install-deps
-RUN playwright install chromium
 
-# Copy tests (mounted at runtime; COPY for standalone build)
+# Copy test and app modules (compose mounts these too; COPY keeps standalone usability).
 COPY tests/ ./tests/
 
 COPY neuroglancer_auth/ ./neuroglancer_auth/
 
-# RUN touch __init__.py
-
 # Default: run pytest
-# CMD ["pytest", "tests/base/", "-v"]
-# CMD ["pytest", "tests/base/test_group.py", "-v"]
-
 CMD ["pytest", "tests", "-v"]
